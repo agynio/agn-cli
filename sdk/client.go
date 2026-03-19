@@ -225,6 +225,7 @@ func (c *Client) readLoop() {
 		}
 		var resp rpcResponse
 		if err := json.Unmarshal([]byte(line), &resp); err != nil {
+			fmt.Fprintf(os.Stderr, "agn-sdk: failed to parse response: %v\n", err)
 			continue
 		}
 		if resp.Method != "" && len(resp.ID) == 0 {

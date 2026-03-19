@@ -2,8 +2,6 @@
 .github
 charts
 dist
-.openapi
-gen/
 *.log
 node_modules
 tmp
@@ -11,6 +9,3 @@ tmp
 .idea
 .env
 **/*.swp
-internal/apischema/
-internal/gen/server.gen.go
-internal/llmgen/server.gen.go

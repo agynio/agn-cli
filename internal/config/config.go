@@ -97,9 +97,6 @@ func (a AuthConfig) Validate() error {
 }
 
 func (a AuthConfig) ResolveAPIKey() (string, error) {
-	if err := a.Validate(); err != nil {
-		return "", err
-	}
 	if strings.TrimSpace(a.APIKey) != "" {
 		return strings.TrimSpace(a.APIKey), nil
 	}

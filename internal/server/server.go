@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 
@@ -19,6 +21,8 @@ type Server struct {
 	writeMu  sync.Mutex
 	inFlight map[string]context.CancelFunc
 	mu       sync.Mutex
+	shutdown context.CancelFunc
+	once     sync.Once
 }
 
 type request struct {
@@ -72,6 +76,15 @@ func New(agent *loop.Agent) *Server {
 }
 
 func (s *Server) Serve(ctx context.Context, reader io.Reader, writer io.Writer) error {
+	ctx, cancel := context.WithCancel(ctx)
+	s.shutdown = cancel
+	defer cancel()
+	if closer, ok := reader.(io.Closer); ok {
+		go func() {
+			<-ctx.Done()
+			_ = closer.Close()
+		}()
+	}
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 	for scanner.Scan() {
@@ -86,31 +99,34 @@ func (s *Server) Serve(ctx context.Context, reader io.Reader, writer io.Writer) 
 		}
 		var req request
 		if err := json.Unmarshal([]byte(line), &req); err != nil {
+			s.writeResponse(writer, response{JSONRPC: jsonRPCVersion, ID: json.RawMessage("null"), Error: &rpcError{Code: -32700, Message: "parse error"}})
 			continue
 		}
 		if strings.TrimSpace(req.Method) == "" {
+			s.writeResponse(writer, response{JSONRPC: jsonRPCVersion, ID: invalidRequestID(req.ID), Error: &rpcError{Code: -32600, Message: "invalid request"}})
+			continue
+		}
+		if len(req.ID) == 0 {
+			s.writeResponse(writer, response{JSONRPC: jsonRPCVersion, ID: json.RawMessage("null"), Error: &rpcError{Code: -32600, Message: "invalid request"}})
 			continue
 		}
 		id := req.ID
 		switch req.Method {
 		case "agent.turn":
-			if len(id) == 0 {
-				continue
-			}
 			go s.handleTurn(ctx, req, writer)
 		case "agent.cancel":
-			if len(id) == 0 {
-				continue
-			}
 			go s.handleCancel(ctx, req, writer)
 		default:
-			if len(id) == 0 {
-				continue
-			}
 			s.writeResponse(writer, response{JSONRPC: jsonRPCVersion, ID: id, Error: &rpcError{Code: -32601, Message: "method not found"}})
 		}
 	}
-	return scanner.Err()
+	if err := scanner.Err(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return err
+	}
+	return ctx.Err()
 }
 
 func (s *Server) handleTurn(ctx context.Context, req request, writer io.Writer) {
@@ -133,6 +149,7 @@ func (s *Server) handleTurn(ctx context.Context, req request, writer io.Writer) 
 		ConversationID: params.ConversationID,
 		Prompt:         message.NewHumanMessage(prompt),
 		RestrictOutput: params.RestrictOutput,
+		Stream:         params.Stream,
 	}
 	if params.Stream {
 		input.EventSink = s.eventSink(writer, idKey)
@@ -180,12 +197,16 @@ func (s *Server) eventSink(writer io.Writer, requestID string) loop.EventSink {
 		}
 		payload, err := json.Marshal(notification)
 		if err != nil {
+			s.signalShutdown(fmt.Errorf("marshal event: %w", err))
 			return
 		}
 		payload = append(payload, '\n')
 		s.writeMu.Lock()
-		_, _ = writer.Write(payload)
+		_, err = writer.Write(payload)
 		s.writeMu.Unlock()
+		if err != nil {
+			s.signalShutdown(fmt.Errorf("write event: %w", err))
+		}
 	}
 }
 
@@ -193,12 +214,35 @@ func (s *Server) writeResponse(writer io.Writer, resp response) {
 	resp.JSONRPC = jsonRPCVersion
 	payload, err := json.Marshal(resp)
 	if err != nil {
+		s.signalShutdown(fmt.Errorf("marshal response: %w", err))
 		return
 	}
 	payload = append(payload, '\n')
 	s.writeMu.Lock()
-	_, _ = writer.Write(payload)
+	_, err = writer.Write(payload)
 	s.writeMu.Unlock()
+	if err != nil {
+		s.signalShutdown(fmt.Errorf("write response: %w", err))
+	}
+}
+
+func (s *Server) signalShutdown(err error) {
+	if err == nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "agn server error: %v\n", err)
+	s.once.Do(func() {
+		if s.shutdown != nil {
+			s.shutdown()
+		}
+	})
+}
+
+func invalidRequestID(id json.RawMessage) json.RawMessage {
+	if len(id) == 0 {
+		return json.RawMessage("null")
+	}
+	return id
 }
 
 func (s *Server) storeCancel(id string, cancel context.CancelFunc) {

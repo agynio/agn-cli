@@ -77,7 +77,7 @@ func (s *LocalStore) Load(ctx context.Context, conversationID string) (Conversat
 	}
 
 	if persisted.ID == "" {
-		persisted.ID = conversationID
+		return Conversation{}, errors.New("conversation ID missing in persisted state")
 	}
 	if persisted.ID != conversationID {
 		return Conversation{}, fmt.Errorf("conversation ID mismatch: %s", persisted.ID)

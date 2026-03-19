@@ -145,31 +145,16 @@ dev:
           - path: ./:/opt/app/data
             excludePaths:
               - .git/
-              - /gen/
-              - .openapi/
               - dist/
               - .devspace/
-              - /internal/apischema/
-              - /internal/gen/server.gen.go
-              - /internal/llmgen/
               - agn.log
               - agn.pid
             uploadExcludePaths:
               - .git/
-              - /gen/
-              - .openapi/
               - dist/
-              - /internal/apischema/
-              - /internal/gen/server.gen.go
-              - /internal/llmgen/
             downloadExcludePaths:
               - .git/
-              - /gen/
-              - .openapi/
               - dist/
-              - /internal/apischema/
-              - /internal/gen/server.gen.go
-              - /internal/llmgen/
         logs:
           enabled: true
           lastLines: 200

@@ -42,6 +42,7 @@ type Input struct {
 	ConversationID string
 	Prompt         message.HumanMessage
 	RestrictOutput bool
+	Stream         bool
 	EventSink      EventSink
 }
 
@@ -54,6 +55,7 @@ type State struct {
 	Conversation     state.Conversation
 	Input            *message.HumanMessage
 	RestrictOutput   bool
+	Stream           bool
 	RestrictAttempts int
 	ForceToolCall    bool
 	Tools            []llm.ToolDefinition
@@ -134,10 +136,14 @@ func (a *Agent) Run(ctx context.Context, input Input) (Result, error) {
 	if strings.TrimSpace(input.Prompt.Text) == "" {
 		return Result{}, errors.New("prompt is required")
 	}
+	if input.Stream && input.EventSink == nil {
+		return Result{}, errors.New("streaming requires an event sink")
+	}
 	state := &State{
-		Conversation:   state.Conversation{ID: conversationID, Messages: []state.MessageRecord{}},
+		Conversation:   state.Conversation{ID: conversationID},
 		Input:          &input.Prompt,
 		RestrictOutput: input.RestrictOutput,
+		Stream:         input.Stream,
 		EventSink:      input.EventSink,
 	}
 	if err := a.loop.Run(ctx, state); err != nil {
@@ -195,13 +201,13 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 	}
 
 	var onDelta func(string)
-	if state.EventSink != nil {
+	if state.Stream {
 		onDelta = func(delta string) {
 			state.EventSink(Event{Type: EventModelDelta, Delta: delta})
 		}
 	}
 
-	response, err := a.llm.CreateResponse(ctx, inputs, state.Tools, state.EventSink != nil, onDelta)
+	response, err := a.llm.CreateResponse(ctx, inputs, state.Tools, state.Stream, onDelta)
 	if err != nil {
 		return err
 	}
@@ -229,7 +235,7 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 		}
 		state.Conversation.Messages = append(state.Conversation.Messages, record)
 		state.PendingToolCalls = toolCalls
-		if state.EventSink != nil {
+		if state.Stream {
 			for _, call := range toolCalls {
 				state.EventSink(Event{Type: EventToolCall, ToolName: call.Name, ToolCallID: call.ID})
 			}
@@ -279,7 +285,7 @@ func (a *Agent) callTools(ctx context.Context, state *State) error {
 			return err
 		}
 		state.Conversation.Messages = append(state.Conversation.Messages, record)
-		if state.EventSink != nil {
+		if state.Stream {
 			state.EventSink(Event{Type: EventToolResult, ToolName: call.Name, ToolCallID: call.ID})
 		}
 	}
@@ -313,14 +319,14 @@ func (a *Agent) buildContextMessages(state *State) ([]message.Message, error) {
 	if strings.TrimSpace(a.systemPrompt) != "" {
 		contextMessages = append(contextMessages, message.NewSystemMessage(a.systemPrompt))
 	}
-	if state.ForceToolCall {
-		contextMessages = append(contextMessages, message.NewSystemMessage("You must call a tool before answering."))
-	}
 	for _, record := range state.Conversation.Messages {
 		if !message.IsContextMessage(record.Message) {
 			continue
 		}
 		contextMessages = append(contextMessages, record.Message)
+	}
+	if state.ForceToolCall {
+		contextMessages = append(contextMessages, message.NewSystemMessage("You must call a tool before answering."))
 	}
 	if len(contextMessages) == 0 {
 		return nil, fmt.Errorf("no context messages available")

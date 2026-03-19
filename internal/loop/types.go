@@ -64,16 +64,13 @@ func (l *Loop) Run(ctx context.Context, state *State) error {
 			if err != nil {
 				return err
 			}
-			if next == StageDone {
-				return nil
-			}
 			current = next
-			continue
+		} else {
+			current = stage.Next
 		}
-		if stage.Next == StageDone {
+		if current == StageDone {
 			return nil
 		}
-		current = stage.Next
 	}
 	return errors.New("loop exceeded max steps")
 }

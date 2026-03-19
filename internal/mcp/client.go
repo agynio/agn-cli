@@ -179,6 +179,7 @@ func (c *Client) readLoop() {
 		}
 		var resp response
 		if err := json.Unmarshal([]byte(line), &resp); err != nil {
+			fmt.Fprintf(os.Stderr, "mcp: failed to parse response: %v\n", err)
 			continue
 		}
 		idKey := strings.TrimSpace(string(resp.ID))

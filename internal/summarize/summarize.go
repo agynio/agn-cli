@@ -144,9 +144,7 @@ func renderSummaryInput(records []state.MessageRecord) string {
 		}
 		role := record.Message.Role()
 		kind := record.Message.Kind()
-		if _, err := fmt.Fprintf(&builder, "%s (%s): %s\n", role, kind, text); err != nil {
-			continue
-		}
+		builder.WriteString(fmt.Sprintf("%s (%s): %s\n", role, kind, text))
 	}
 	return builder.String()
 }
@@ -161,9 +159,5 @@ func DefaultTokenCounter(msg message.Message) (int, error) {
 		return 1, nil
 	}
 	runes := []rune(trimmed)
-	count := len(runes)/4 + 1
-	if count < 1 {
-		return 1, nil
-	}
-	return count, nil
+	return len(runes)/4 + 1, nil
 }

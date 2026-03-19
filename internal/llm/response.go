@@ -9,7 +9,7 @@ import (
 func (r Response) Text() string {
 	var builder strings.Builder
 	for _, item := range r.Output {
-		if item.Type != "message" && item.Role != "assistant" {
+		if item.Type != "message" || item.Role != "assistant" {
 			continue
 		}
 		for _, content := range item.Content {
