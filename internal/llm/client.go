@@ -68,7 +68,7 @@ func (c *Client) CreateResponse(
 		var final *responses.Response
 		for streamResp.Next() {
 			event := streamResp.Current()
-			if event.Delta != "" && onDelta != nil {
+			if event.Type == "response.output_text.delta" && event.Delta != "" && onDelta != nil {
 				onDelta(event.Delta)
 			}
 			if event.Type == "response.completed" {
