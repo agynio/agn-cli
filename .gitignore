@@ -1,0 +1,5 @@
+.venv/
+.hypothesis/
+dist/
+agn.log
+agn.pid

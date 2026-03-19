@@ -1,0 +1,172 @@
+version: v2beta1
+
+vars:
+  AGN_NAMESPACE: platform
+  E2E_IMAGE: ghcr.io/agynio/devcontainer-go:1
+
+deployments:
+  e2e-runner:
+    namespace: ${AGN_NAMESPACE}
+    helm:
+      chart:
+        name: component-chart
+        repo: https://charts.devspace.sh
+      values:
+        containers:
+          - image: ${E2E_IMAGE}
+        labels:
+          app.kubernetes.io/name: agn-e2e
+
+commands:
+  test:e2e: |-
+    devspace run-pipeline test:e2e $@
+
+pipelines:
+  dev:
+    flags:
+      - name: watch
+        short: w
+        description: "Keep DevSpace running and stream logs"
+    run: |-
+      if kubectl get application agn -n argocd >/dev/null 2>&1; then
+        echo "Disabling ArgoCD auto-sync for agn..."
+        kubectl patch application agn -n argocd \
+          --type merge \
+          -p '{"spec":{"syncPolicy":{"automated":null}}}'
+        echo "ArgoCD auto-sync disabled."
+      else
+        echo "WARNING: ArgoCD Application 'agn' not found in argocd namespace."
+      fi
+      echo "Patching agn deployment for DevSpace..."
+      kubectl patch deployment agn-agn -n ${AGN_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
+      spec:
+        template:
+          spec:
+            securityContext:
+              runAsUser: 1000
+              fsGroup: 1000
+            initContainers: []
+            volumes:
+              - name: data
+                emptyDir: {}
+            containers:
+              - name: agn
+                image: ghcr.io/agynio/devcontainer-go:1.1.0
+                workingDir: /opt/app/data
+                command:
+                  - sh
+                  - -c
+                  - |
+                    set -eu
+                    elapsed=0
+                    while [ ! -f /opt/app/data/go.mod ]; do
+                      sleep 1; elapsed=$((elapsed + 1))
+                      [ "$elapsed" -ge 120 ] && { echo "ERROR: sync timeout" >&2; exit 1; }
+                    done
+                    exec /opt/app/data/scripts/devspace-startup.sh
+                volumeMounts:
+                  - name: data
+                    mountPath: /opt/app/data
+                resources:
+                  requests:
+                    cpu: 500m
+                    memory: 1Gi
+                  limits:
+                    cpu: "2"
+                    memory: 4Gi
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: 1000
+                  runAsGroup: 1000
+                  readOnlyRootFilesystem: false
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop: ["ALL"]
+                  seccompProfile:
+                    type: RuntimeDefault
+      EOF
+      )"
+      if [ "$(get_flag "watch")" == "true" ]; then
+        start_dev --disable-pod-replace agn
+      else
+        start_dev --disable-pod-replace agn
+        echo "Waiting for agn to start..."
+        ready=false
+        for i in $(seq 1 60); do
+          if kubectl exec deployment/agn-agn -n ${AGN_NAMESPACE} -c agn -- sh -c 'pgrep -f "agn serve" >/dev/null 2>&1'; then
+            echo "agn is running."
+            ready=true
+            break
+          fi
+          sleep 2
+        done
+        if [ "$ready" != "true" ]; then
+          echo "ERROR: agn did not start within 120s" >&2
+          exit 1
+        fi
+        echo "Dev environment ready. Stopping dev session."
+        stop_dev agn
+      fi
+
+  test:e2e:
+    run: |-
+      create_deployments e2e-runner
+      start_dev e2e-runner &
+      sleep 5
+      exec_container \
+        --label-selector "app.kubernetes.io/name=agn-e2e" \
+        -n ${AGN_NAMESPACE} \
+        -- bash -c 'cd /opt/app/data && go test -v -count=1 -tags e2e ./test/e2e/'
+      EXIT_CODE=$?
+      stop_dev e2e-runner
+      purge_deployments e2e-runner
+      exit $EXIT_CODE
+
+hooks:
+  - name: restore-argocd-auto-sync
+    events:
+      - after:dev:agn
+    command: bash
+    args:
+      - -c
+      - |
+        ./scripts/argocd-restore.sh
+
+dev:
+  agn:
+    namespace: ${AGN_NAMESPACE}
+    labelSelector:
+      app.kubernetes.io/name: agn
+      app.kubernetes.io/instance: agn
+    containers:
+      agn:
+        container: agn
+        sync:
+          - path: ./:/opt/app/data
+            excludePaths:
+              - .git/
+              - dist/
+              - .devspace/
+              - agn.log
+              - agn.pid
+            uploadExcludePaths:
+              - .git/
+              - dist/
+            downloadExcludePaths:
+              - .git/
+              - dist/
+        logs:
+          enabled: true
+          lastLines: 200
+
+  e2e-runner:
+    namespace: ${AGN_NAMESPACE}
+    labelSelector:
+      app.kubernetes.io/name: agn-e2e
+    command: ["sleep", "infinity"]
+    workingDir: /opt/app/data
+    sync:
+      - path: ./:/opt/app/data
+        excludePaths:
+          - .git/
+          - .devspace/
