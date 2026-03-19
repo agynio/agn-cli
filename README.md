@@ -22,11 +22,11 @@ See [bootstrap](https://github.com/agynio/bootstrap) for details.
 ### Run from sources
 
 ```bash
-# Deploy once (exit when healthy)
-devspace dev
+go run ./cmd/agn exec "Hello from agn"
+```
 
-# Watch mode (streams logs, re-syncs on changes)
-devspace dev -w
+```bash
+go run ./cmd/agn serve
 ```
 
 ### Run tests
