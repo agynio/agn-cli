@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/responses"
 
 	"github.com/agynio/agn-cli/internal/llm"
 	"github.com/agynio/agn-cli/internal/mcp"
@@ -58,7 +60,7 @@ type State struct {
 	Stream           bool
 	RestrictAttempts int
 	ForceToolCall    bool
-	Tools            []llm.ToolDefinition
+	Tools            []responses.ToolUnionParam
 	PendingToolCalls []message.ToolCall
 	LastAssistant    string
 	EventSink        EventSink
@@ -199,6 +201,11 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 	if err != nil {
 		return err
 	}
+	instructions := strings.TrimSpace(a.systemPrompt)
+	toolChoice := responses.ResponseNewParamsToolChoiceUnion{}
+	if state.ForceToolCall {
+		toolChoice.OfToolChoiceMode = openai.Opt(responses.ToolChoiceOptionsRequired)
+	}
 
 	var onDelta func(string)
 	if state.Stream {
@@ -207,12 +214,12 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 		}
 	}
 
-	response, err := a.llm.CreateResponse(ctx, inputs, state.Tools, state.Stream, onDelta)
+	response, err := a.llm.CreateResponse(ctx, instructions, inputs, state.Tools, toolChoice, state.Stream, onDelta)
 	if err != nil {
 		return err
 	}
-	text := strings.TrimSpace(response.Text())
-	toolCalls := response.ToolCalls()
+	text := strings.TrimSpace(response.OutputText())
+	toolCalls := llm.ExtractToolCalls(response)
 
 	if text == "" && len(toolCalls) == 0 {
 		return errors.New("model returned no content")
@@ -315,18 +322,12 @@ func (a *Agent) recordFromMessage(msg message.Message) (state.MessageRecord, err
 }
 
 func (a *Agent) buildContextMessages(state *State) ([]message.Message, error) {
-	contextMessages := make([]message.Message, 0, len(state.Conversation.Messages)+2)
-	if strings.TrimSpace(a.systemPrompt) != "" {
-		contextMessages = append(contextMessages, message.NewSystemMessage(a.systemPrompt))
-	}
+	contextMessages := make([]message.Message, 0, len(state.Conversation.Messages))
 	for _, record := range state.Conversation.Messages {
 		if !message.IsContextMessage(record.Message) {
 			continue
 		}
 		contextMessages = append(contextMessages, record.Message)
-	}
-	if state.ForceToolCall {
-		contextMessages = append(contextMessages, message.NewSystemMessage("You must call a tool before answering."))
 	}
 	if len(contextMessages) == 0 {
 		return nil, fmt.Errorf("no context messages available")

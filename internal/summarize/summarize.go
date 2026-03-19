@@ -11,6 +11,7 @@ import (
 	"github.com/agynio/agn-cli/internal/llm"
 	"github.com/agynio/agn-cli/internal/message"
 	"github.com/agynio/agn-cli/internal/state"
+	"github.com/openai/openai-go/v3/responses"
 )
 
 const (
@@ -100,18 +101,18 @@ func (s *Summarizer) Summarize(ctx context.Context, messages []state.MessageReco
 		return messages, nil
 	}
 
-	system := message.NewSystemMessage("Summarize the conversation history. Keep decisions, tool usage, and requirements. Be concise.")
+	instructions := "Summarize the conversation history. Keep decisions, tool usage, and requirements. Be concise."
 	user := message.NewHumanMessage(input)
-	inputs, err := llm.MessagesToInput([]message.Message{system, user})
+	inputs, err := llm.MessagesToInput([]message.Message{user})
 	if err != nil {
 		return nil, err
 	}
-
-	response, err := s.client.CreateResponse(ctx, inputs, nil, false, nil)
+	toolChoice := responses.ResponseNewParamsToolChoiceUnion{}
+	response, err := s.client.CreateResponse(ctx, instructions, inputs, nil, toolChoice, false, nil)
 	if err != nil {
 		return nil, err
 	}
-	summaryText := strings.TrimSpace(response.Text())
+	summaryText := strings.TrimSpace(response.OutputText())
 	if summaryText == "" {
 		return nil, errors.New("summary response was empty")
 	}

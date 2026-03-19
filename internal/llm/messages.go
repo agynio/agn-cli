@@ -8,78 +8,74 @@ import (
 
 	"github.com/agynio/agn-cli/internal/mcp"
 	"github.com/agynio/agn-cli/internal/message"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/responses"
 )
 
-func MessagesToInput(messages []message.Message) ([]InputMessage, error) {
-	inputs := make([]InputMessage, 0, len(messages))
+func MessagesToInput(messages []message.Message) ([]responses.ResponseInputItemUnionParam, error) {
+	inputs := make([]responses.ResponseInputItemUnionParam, 0, len(messages))
 	for _, msg := range messages {
-		input, err := messageToInput(msg)
+		items, err := messageToInputItems(msg)
 		if err != nil {
 			return nil, err
 		}
-		inputs = append(inputs, input)
+		inputs = append(inputs, items...)
 	}
 	return inputs, nil
 }
 
-func messageToInput(msg message.Message) (InputMessage, error) {
+func messageToInputItems(msg message.Message) ([]responses.ResponseInputItemUnionParam, error) {
 	switch typed := msg.(type) {
 	case message.SystemMessage:
-		return InputMessage{
-			Role:    "system",
-			Content: []ContentItem{{Type: "input_text", Text: typed.Text}},
+		return []responses.ResponseInputItemUnionParam{
+			responses.ResponseInputItemParamOfMessage(typed.Text, responses.EasyInputMessageRoleDeveloper),
 		}, nil
 	case message.HumanMessage:
-		return InputMessage{
-			Role:    "user",
-			Content: []ContentItem{{Type: "input_text", Text: typed.Text}},
+		return []responses.ResponseInputItemUnionParam{
+			responses.ResponseInputItemParamOfMessage(typed.Text, responses.EasyInputMessageRoleUser),
 		}, nil
 	case message.AIMessage:
-		return InputMessage{
-			Role:    "assistant",
-			Content: []ContentItem{{Type: "input_text", Text: typed.Text}},
+		return []responses.ResponseInputItemUnionParam{
+			responses.ResponseInputItemParamOfMessage(typed.Text, responses.EasyInputMessageRoleAssistant),
 		}, nil
 	case message.ToolCallMessage:
-		calls := make([]ToolCall, 0, len(typed.ToolCalls))
+		items := make([]responses.ResponseInputItemUnionParam, 0, len(typed.ToolCalls))
 		for _, call := range typed.ToolCalls {
-			calls = append(calls, ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments})
+			items = append(items, responses.ResponseInputItemParamOfFunctionCall(string(call.Arguments), call.ID, call.Name))
 		}
-		return InputMessage{
-			Role:      "assistant",
-			ToolCalls: calls,
-		}, nil
+		return items, nil
 	case message.ToolCallOutputMessage:
-		return InputMessage{
-			Role:       "tool",
-			ToolCallID: typed.Output.ToolCallID,
-			Name:       typed.Output.ToolName,
-			Content:    []ContentItem{{Type: "input_text", Text: typed.Output.Output}},
+		return []responses.ResponseInputItemUnionParam{
+			responses.ResponseInputItemParamOfFunctionCallOutput(typed.Output.ToolCallID, typed.Output.Output),
 		}, nil
 	case message.ResponseMessage:
-		return InputMessage{}, errors.New("response messages are not valid LLM input")
+		return nil, errors.New("response messages are not valid LLM input")
 	default:
-		return InputMessage{}, fmt.Errorf("unsupported message type %T", msg)
+		return nil, fmt.Errorf("unsupported message type %T", msg)
 	}
 }
 
-func ToolDefinitionsFromMCP(tools []mcp.Tool) ([]ToolDefinition, error) {
-	result := make([]ToolDefinition, 0, len(tools))
+func ToolDefinitionsFromMCP(tools []mcp.Tool) ([]responses.ToolUnionParam, error) {
+	result := make([]responses.ToolUnionParam, 0, len(tools))
 	for _, tool := range tools {
 		if strings.TrimSpace(tool.Name) == "" {
 			return nil, errors.New("tool name is required")
 		}
-		params := tool.InputSchema
-		if len(params) == 0 {
-			params = json.RawMessage("{}")
+		parameters := map[string]any{}
+		if len(tool.InputSchema) > 0 {
+			if err := json.Unmarshal(tool.InputSchema, &parameters); err != nil {
+				return nil, fmt.Errorf("parse tool schema for %s: %w", tool.Name, err)
+			}
 		}
-		result = append(result, ToolDefinition{
-			Type: "function",
-			Function: ToolFunction{
-				Name:        tool.Name,
-				Description: tool.Description,
-				Parameters:  params,
-			},
-		})
+		function := responses.FunctionToolParam{
+			Name:       tool.Name,
+			Parameters: parameters,
+			Strict:     openai.Bool(true),
+		}
+		if strings.TrimSpace(tool.Description) != "" {
+			function.Description = openai.String(tool.Description)
+		}
+		result = append(result, responses.ToolUnionParam{OfFunction: &function})
 	}
 	return result, nil
 }
