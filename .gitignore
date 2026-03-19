@@ -1,0 +1,12 @@
+.venv/
+.hypothesis/
+dist/
+.openapi/
+agn.log
+agn.pid
+
+# Build-time generated code - do not commit
+gen/
+internal/apischema/
+internal/gen/server.gen.go
+internal/llmgen/
