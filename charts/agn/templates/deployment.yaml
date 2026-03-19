@@ -1,2 +1,0 @@
-{{- include "agn.configureEnv" . -}}
-{{- include "service-base.deployment" . -}}
