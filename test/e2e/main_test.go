@@ -84,7 +84,7 @@ func TestStatePersistence(t *testing.T) {
 
 	conversation, err := store.Load(ctx, result.ConversationID)
 	require.NoError(t, err)
-	require.NotEmpty(t, conversation.Messages)
+	require.GreaterOrEqual(t, len(conversation.Messages), 2, "expected at least user prompt and assistant response")
 }
 
 func newTestContext(t *testing.T) (context.Context, context.CancelFunc) {
