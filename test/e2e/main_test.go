@@ -4,7 +4,6 @@ package e2e
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -19,11 +18,11 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 )
 
-type e2eConfig struct {
-	endpoint string
-	model    string
-	apiKey   string
-}
+const (
+	testEndpoint = "https://testllm.dev/v1/org/agynio/suite/codex"
+	testModel    = "simple-hello"
+	testAPIKey   = "test-key"
+)
 
 func TestAgentHelloResponse(t *testing.T) {
 	ctx, cancel := newTestContext(t)
@@ -94,8 +93,7 @@ func newTestContext(t *testing.T) (context.Context, context.CancelFunc) {
 
 func newTestClient(t *testing.T) *llm.Client {
 	t.Helper()
-	cfg := loadE2EConfig()
-	client, err := llm.NewClient(cfg.endpoint, cfg.apiKey, cfg.model)
+	client, err := llm.NewClient(testEndpoint, testAPIKey, testModel)
 	require.NoError(t, err)
 	return client
 }
@@ -125,20 +123,4 @@ func newTestAgent(t *testing.T, store state.Store, client *llm.Client, summarize
 	})
 	require.NoError(t, err)
 	return agent
-}
-
-func loadE2EConfig() e2eConfig {
-	return e2eConfig{
-		endpoint: envOrDefault("AGN_E2E_LLM_ENDPOINT", "https://testllm.dev/v1/org/agynio/suite/codex"),
-		model:    envOrDefault("AGN_E2E_LLM_MODEL", "simple-hello"),
-		apiKey:   envOrDefault("AGN_E2E_LLM_API_KEY", "test-key"),
-	}
-}
-
-func envOrDefault(name, fallback string) string {
-	value := strings.TrimSpace(os.Getenv(name))
-	if value == "" {
-		return fallback
-	}
-	return value
 }
