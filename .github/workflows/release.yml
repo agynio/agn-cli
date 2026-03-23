@@ -6,7 +6,7 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 env:
@@ -79,3 +79,31 @@ jobs:
             exit 1
           fi
           echo "Manifest $IMAGE_NAME:$TAG includes linux/amd64 and linux/arm64"
+
+  binary:
+    name: Build and release binary
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build binaries
+        env:
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p dist
+          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/agn-linux-amd64 ./cmd/agn
+          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/agn-linux-arm64 ./cmd/agn
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/agn-linux-amd64
+            dist/agn-linux-arm64
