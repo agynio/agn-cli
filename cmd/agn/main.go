@@ -35,7 +35,6 @@ func main() {
 
 func execCommand() *cobra.Command {
 	var threadID string
-	var conversationID string
 	cmd := &cobra.Command{
 		Use:   "exec <prompt>",
 		Short: "Run a single prompt and exit",
@@ -45,6 +44,7 @@ func execCommand() *cobra.Command {
 			if prompt == "" {
 				return errors.New("prompt is required")
 			}
+			trimmedThreadID := strings.TrimSpace(threadID)
 			cfg, err := config.LoadDefault()
 			if err != nil {
 				return err
@@ -55,7 +55,7 @@ func execCommand() *cobra.Command {
 			}
 			defer cleanup()
 			result, err := agent.Run(cmd.Context(), loop.Input{
-				ThreadID: resolveThreadID(threadID, conversationID),
+				ThreadID: trimmedThreadID,
 				Prompt:   message.NewHumanMessage(prompt),
 			})
 			if err != nil {
@@ -69,7 +69,6 @@ func execCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&threadID, "thread-id", "", "Thread ID to resume")
-	cmd.Flags().StringVar(&conversationID, "conversation-id", "", "Conversation ID to resume")
 	cmd.AddCommand(execResumeCommand())
 	return cmd
 }
@@ -217,12 +216,4 @@ func newMCPClient(ctx context.Context) (*mcp.Client, error) {
 		return nil, err
 	}
 	return client, nil
-}
-
-func resolveThreadID(threadID, conversationID string) string {
-	threadID = strings.TrimSpace(threadID)
-	if threadID != "" {
-		return threadID
-	}
-	return strings.TrimSpace(conversationID)
 }

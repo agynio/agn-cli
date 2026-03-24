@@ -54,7 +54,6 @@ type rpcError struct {
 type TurnParams struct {
 	Prompt         string `json:"prompt"`
 	ThreadID       string `json:"thread_id,omitempty"`
-	ConversationID string `json:"conversation_id,omitempty"`
 	RestrictOutput bool   `json:"restrict_output,omitempty"`
 	Stream         bool   `json:"stream,omitempty"`
 }
@@ -101,8 +100,7 @@ type ThreadListResult struct {
 }
 
 type ThreadReadParams struct {
-	ThreadID       string `json:"thread_id"`
-	ConversationID string `json:"conversation_id,omitempty"`
+	ThreadID string `json:"thread_id"`
 }
 
 type ThreadReadResult struct {
@@ -123,18 +121,9 @@ type ThreadReadMessage struct {
 
 type ThreadResumeParams struct {
 	ThreadID       string `json:"thread_id"`
-	ConversationID string `json:"conversation_id,omitempty"`
 	Prompt         string `json:"prompt"`
 	RestrictOutput bool   `json:"restrict_output,omitempty"`
 	Stream         bool   `json:"stream,omitempty"`
-}
-
-func resolveThreadID(threadID, conversationID string) string {
-	threadID = strings.TrimSpace(threadID)
-	if threadID != "" {
-		return threadID
-	}
-	return strings.TrimSpace(conversationID)
 }
 
 func New(agent *loop.Agent, store state.Store) *Server {
@@ -182,9 +171,9 @@ func (s *Server) Serve(ctx context.Context, reader io.Reader, writer io.Writer) 
 		}
 		id := req.ID
 		switch req.Method {
-		case "turn/start", "agent.turn":
+		case "turn/start":
 			go s.handleTurn(ctx, req, writer)
-		case "turn/interrupt", "agent.cancel":
+		case "turn/interrupt":
 			go s.handleCancel(ctx, req, writer)
 		case "thread/list":
 			go s.handleThreadList(ctx, req, writer)
@@ -216,7 +205,7 @@ func (s *Server) handleTurn(ctx context.Context, req request, writer io.Writer) 
 		s.writeResponse(writer, response{JSONRPC: jsonRPCVersion, ID: req.ID, Error: &rpcError{Code: -32602, Message: "prompt is required"}})
 		return
 	}
-	threadID := resolveThreadID(params.ThreadID, params.ConversationID)
+	threadID := strings.TrimSpace(params.ThreadID)
 	s.executeTurn(ctx, req, writer, threadID, prompt, params.RestrictOutput, params.Stream)
 }
 
@@ -303,7 +292,7 @@ func (s *Server) handleThreadRead(ctx context.Context, req request, writer io.Wr
 		s.writeResponse(writer, response{JSONRPC: jsonRPCVersion, ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params"}})
 		return
 	}
-	threadID := resolveThreadID(params.ThreadID, params.ConversationID)
+	threadID := strings.TrimSpace(params.ThreadID)
 	if threadID == "" {
 		s.writeResponse(writer, response{JSONRPC: jsonRPCVersion, ID: req.ID, Error: &rpcError{Code: -32602, Message: "thread_id is required"}})
 		return
@@ -363,7 +352,7 @@ func (s *Server) handleThreadResume(ctx context.Context, req request, writer io.
 		s.writeResponse(writer, response{JSONRPC: jsonRPCVersion, ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params"}})
 		return
 	}
-	threadID := resolveThreadID(params.ThreadID, params.ConversationID)
+	threadID := strings.TrimSpace(params.ThreadID)
 	if threadID == "" {
 		s.writeResponse(writer, response{JSONRPC: jsonRPCVersion, ID: req.ID, Error: &rpcError{Code: -32602, Message: "thread_id is required"}})
 		return
