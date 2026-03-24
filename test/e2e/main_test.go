@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,12 +20,6 @@ import (
 type testEnv struct {
 	home string
 	env  []string
-}
-
-type testConfig struct {
-	Endpoint string
-	APIKey   string
-	Model    string
 }
 
 var (
@@ -153,7 +148,8 @@ func newStubServer(t *testing.T) *httptest.Server {
 }
 
 type responseRequest struct {
-	Input json.RawMessage `json:"input"`
+	Input        json.RawMessage `json:"input"`
+	Instructions string          `json:"instructions"`
 }
 
 func lastUserPrompt(input json.RawMessage) string {
@@ -198,10 +194,17 @@ func extractInputText(content any) string {
 }
 
 func newTestEnv(t *testing.T, endpoint string) testEnv {
+	return newTestEnvWithSystemPrompt(t, endpoint, "")
+}
+
+func newTestEnvWithSystemPrompt(t *testing.T, endpoint, systemPrompt string) testEnv {
 	t.Helper()
 	home := t.TempDir()
 	configPath := filepath.Join(home, "config.yaml")
 	config := fmt.Sprintf("llm:\n  endpoint: %s\n  model: test-model\n  auth:\n    api_key: test-key\n", endpoint)
+	if strings.TrimSpace(systemPrompt) != "" {
+		config += fmt.Sprintf("system_prompt: %q\n", systemPrompt)
+	}
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -245,8 +248,12 @@ func repoRoot() (string, error) {
 }
 
 func runAgn(t *testing.T, binary string, env []string, args ...string) (string, string) {
+	return runAgnWithContext(t, context.Background(), binary, env, args...)
+}
+
+func runAgnWithContext(t *testing.T, ctx context.Context, binary string, env []string, args ...string) (string, string) {
 	t.Helper()
-	cmd := exec.Command(binary, args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Env = env
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -267,27 +274,4 @@ func parseThreadID(t *testing.T, stderr string) string {
 	}
 	t.Fatalf("thread_id not found in stderr: %q", stderr)
 	return ""
-}
-
-func loadTestConfig(t *testing.T) testConfig {
-	t.Helper()
-
-	endpoint := strings.TrimSpace(os.Getenv("TESTLLM_ENDPOINT"))
-	if endpoint == "" {
-		t.Skip("TESTLLM_ENDPOINT is not set; skipping TestLLM-backed tests")
-	}
-
-	return testConfig{
-		Endpoint: endpoint,
-		APIKey:   envOrDefault("TESTLLM_API_KEY", "e2e-dummy-key"),
-		Model:    envOrDefault("TESTLLM_MODEL", "system-prompt"),
-	}
-}
-
-func envOrDefault(key, fallback string) string {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
-	}
-	return value
 }
