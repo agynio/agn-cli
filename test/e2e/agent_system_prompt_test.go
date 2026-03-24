@@ -81,25 +81,5 @@ func newSystemPromptServer(t *testing.T) *httptest.Server {
 }
 
 func matchesSystemPrompt(req responseRequest, expected string) bool {
-	if strings.TrimSpace(req.Instructions) != "" {
-		return strings.TrimSpace(req.Instructions) == expected
-	}
-	return systemPromptFromInput(req.Input) == expected
-}
-
-func systemPromptFromInput(input json.RawMessage) string {
-	var messages []map[string]any
-	if err := json.Unmarshal(input, &messages); err != nil {
-		return ""
-	}
-	for _, item := range messages {
-		role, _ := item["role"].(string)
-		if role != "developer" && role != "system" {
-			continue
-		}
-		if text := extractInputText(item["content"]); text != "" {
-			return text
-		}
-	}
-	return ""
+	return strings.TrimSpace(req.Instructions) == expected
 }
