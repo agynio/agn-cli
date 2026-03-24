@@ -5,6 +5,7 @@ package e2e
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -36,7 +37,8 @@ func TestAgentSystemPrompt(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	result, err := agent.Run(ctx, loop.Input{Prompt: message.NewHumanMessage("hi")})
 	require.NoError(t, err)
 	require.Equal(t, "Hello! I am here to help!", result.Response)
