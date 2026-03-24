@@ -34,8 +34,8 @@ func main() {
 }
 
 func execCommand() *cobra.Command {
+	var threadID string
 	var conversationID string
-
 	cmd := &cobra.Command{
 		Use:   "exec <prompt>",
 		Short: "Run a single prompt and exit",
@@ -49,27 +49,96 @@ func execCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			agent, cleanup, err := buildAgent(cmd.Context(), cfg)
+			agent, _, cleanup, err := buildAgent(cmd.Context(), cfg)
 			if err != nil {
 				return err
 			}
 			defer cleanup()
 			result, err := agent.Run(cmd.Context(), loop.Input{
-				Prompt:         message.NewHumanMessage(prompt),
-				ConversationID: strings.TrimSpace(conversationID),
+				ThreadID: resolveThreadID(threadID, conversationID),
+				Prompt:   message.NewHumanMessage(prompt),
 			})
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintln(cmd.OutOrStdout(), result.Response)
-			if err != nil {
+			if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "thread_id: %s\n", result.ThreadID); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.ErrOrStderr(), "conversation_id: %s\n", result.ConversationID)
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), result.Response)
 			return err
 		},
 	}
+	cmd.Flags().StringVar(&threadID, "thread-id", "", "Thread ID to resume")
 	cmd.Flags().StringVar(&conversationID, "conversation-id", "", "Conversation ID to resume")
+	cmd.AddCommand(execResumeCommand())
+	return cmd
+}
+
+func execResumeCommand() *cobra.Command {
+	var useLast bool
+	cmd := &cobra.Command{
+		Use:   "resume <thread-id> <prompt>",
+		Short: "Resume a thread with a follow-up prompt",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if useLast {
+				if len(args) != 1 {
+					return errors.New("prompt is required when --last is set")
+				}
+				return nil
+			}
+			if len(args) != 2 {
+				return errors.New("thread ID and prompt are required")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.LoadDefault()
+			if err != nil {
+				return err
+			}
+			agent, store, cleanup, err := buildAgent(cmd.Context(), cfg)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+
+			var threadID string
+			var prompt string
+			if useLast {
+				threads, err := store.List(cmd.Context())
+				if err != nil {
+					return err
+				}
+				if len(threads) == 0 {
+					return errors.New("no threads found")
+				}
+				threadID = threads[0].ID
+				prompt = strings.TrimSpace(args[0])
+			} else {
+				threadID = strings.TrimSpace(args[0])
+				prompt = strings.TrimSpace(args[1])
+			}
+			if threadID == "" {
+				return errors.New("thread ID is required")
+			}
+			if prompt == "" {
+				return errors.New("prompt is required")
+			}
+			result, err := agent.Run(cmd.Context(), loop.Input{
+				ThreadID: threadID,
+				Prompt:   message.NewHumanMessage(prompt),
+			})
+			if err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "thread_id: %s\n", result.ThreadID); err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), result.Response)
+			return err
+		},
+	}
+	cmd.Flags().BoolVar(&useLast, "last", false, "Use most recent thread")
 	return cmd
 }
 
@@ -82,38 +151,38 @@ func serveCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			agent, cleanup, err := buildAgent(cmd.Context(), cfg)
+			agent, store, cleanup, err := buildAgent(cmd.Context(), cfg)
 			if err != nil {
 				return err
 			}
 			defer cleanup()
-			srv := server.New(agent)
+			srv := server.New(agent, store)
 			return srv.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}
 	return cmd
 }
 
-func buildAgent(ctx context.Context, cfg config.Config) (*loop.Agent, func(), error) {
+func buildAgent(ctx context.Context, cfg config.Config) (*loop.Agent, state.Store, func(), error) {
 	apiKey, err := cfg.LLM.Auth.ResolveAPIKey()
 	if err != nil {
-		return nil, func() {}, err
+		return nil, nil, func() {}, err
 	}
 	llmClient, err := llm.NewClient(cfg.LLM.Endpoint, apiKey, cfg.LLM.Model)
 	if err != nil {
-		return nil, func() {}, err
+		return nil, nil, func() {}, err
 	}
 	summarizer, err := summarize.New(llmClient, summarize.Config{})
 	if err != nil {
-		return nil, func() {}, err
+		return nil, nil, func() {}, err
 	}
 	store, err := state.NewDefaultLocalStore()
 	if err != nil {
-		return nil, func() {}, err
+		return nil, nil, func() {}, err
 	}
 	mcpClient, err := newMCPClient(ctx)
 	if err != nil {
-		return nil, func() {}, err
+		return nil, nil, func() {}, err
 	}
 	cleanup := func() {
 		if mcpClient != nil {
@@ -129,9 +198,9 @@ func buildAgent(ctx context.Context, cfg config.Config) (*loop.Agent, func(), er
 	})
 	if err != nil {
 		cleanup()
-		return nil, func() {}, err
+		return nil, nil, func() {}, err
 	}
-	return agent, cleanup, nil
+	return agent, store, cleanup, nil
 }
 
 func newMCPClient(ctx context.Context) (*mcp.Client, error) {
@@ -148,4 +217,12 @@ func newMCPClient(ctx context.Context) (*mcp.Client, error) {
 		return nil, err
 	}
 	return client, nil
+}
+
+func resolveThreadID(threadID, conversationID string) string {
+	threadID = strings.TrimSpace(threadID)
+	if threadID != "" {
+		return threadID
+	}
+	return strings.TrimSpace(conversationID)
 }

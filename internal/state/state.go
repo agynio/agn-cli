@@ -14,13 +14,20 @@ type MessageRecord struct {
 	Message    message.Message
 }
 
-type Conversation struct {
+type Thread struct {
 	ID        string
 	Messages  []MessageRecord
 	UpdatedAt time.Time
 }
 
+type ThreadSummary struct {
+	ID        string    `json:"thread_id"`
+	Preview   string    `json:"preview"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type Store interface {
-	Load(ctx context.Context, conversationID string) (Conversation, error)
-	Save(ctx context.Context, conversation Conversation) error
+	Load(ctx context.Context, threadID string) (Thread, error)
+	Save(ctx context.Context, thread Thread) error
+	List(ctx context.Context) ([]ThreadSummary, error)
 }

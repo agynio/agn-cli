@@ -12,6 +12,6 @@ func TestRemoteStoreNotImplemented(t *testing.T) {
 	_, err := store.Load(context.Background(), "conv-1")
 	require.ErrorIs(t, err, ErrRemoteNotImplemented)
 
-	err = store.Save(context.Background(), Conversation{ID: "conv-1"})
+	err = store.Save(context.Background(), Thread{ID: "conv-1"})
 	require.ErrorIs(t, err, ErrRemoteNotImplemented)
 }
