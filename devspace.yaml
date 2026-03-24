@@ -3,7 +3,6 @@ version: v2beta1
 vars:
   AGN_NAMESPACE: platform
   E2E_IMAGE: ghcr.io/agynio/devcontainer-go:1
-  TESTLLM_ENDPOINT: ${TESTLLM_ENDPOINT}
 
 deployments:
   e2e-runner:
@@ -31,8 +30,7 @@ pipelines:
       exec_container \
         --label-selector "app.kubernetes.io/name=agn-e2e" \
         -n ${AGN_NAMESPACE} \
-        -- env TESTLLM_ENDPOINT="${TESTLLM_ENDPOINT}" \
-          bash -c 'cd /opt/app/data && go test -v -count=1 -tags e2e ./test/e2e/'
+        -- bash -c 'cd /opt/app/data && go test -v -count=1 -tags e2e ./test/e2e/'
       EXIT_CODE=$?
       stop_dev e2e-runner
       purge_deployments e2e-runner
