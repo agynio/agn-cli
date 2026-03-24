@@ -40,15 +40,15 @@ func TestClientTurnRequest(t *testing.T) {
 	req := readRequest(t, reqReader)
 	require.Equal(t, jsonRPCVersion, req.JSONRPC)
 	require.Equal(t, int64(1), req.ID)
-	require.Equal(t, "agent.turn", req.Method)
+	require.Equal(t, "turn/start", req.Method)
 	params, ok := req.Params.(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "hello", params["prompt"])
 
-	writeResponse(t, respWriter, req.ID, TurnResult{ConversationID: "conv", Response: "ok"}, nil)
+	writeResponse(t, respWriter, req.ID, TurnResult{ThreadID: "thread-1", Response: "ok"}, nil)
 	<-done
 	require.NoError(t, err)
-	require.Equal(t, TurnResult{ConversationID: "conv", Response: "ok"}, result)
+	require.Equal(t, TurnResult{ThreadID: "thread-1", Response: "ok"}, result)
 }
 
 func TestClientCancelRequest(t *testing.T) {
@@ -66,7 +66,7 @@ func TestClientCancelRequest(t *testing.T) {
 	req := readRequest(t, reqReader)
 	require.Equal(t, jsonRPCVersion, req.JSONRPC)
 	require.Equal(t, int64(1), req.ID)
-	require.Equal(t, "agent.cancel", req.Method)
+	require.Equal(t, "turn/interrupt", req.Method)
 	params, ok := req.Params.(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "req-1", params["request_id"])

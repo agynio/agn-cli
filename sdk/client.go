@@ -387,16 +387,6 @@ func (c *Client) readLoop() {
 
 func (c *Client) handleNotification(resp rpcResponse) {
 	switch resp.Method {
-	case "agent.event":
-		var event Event
-		if err := json.Unmarshal(resp.Params, &event); err != nil {
-			return
-		}
-		event.Method = resp.Method
-		if strings.TrimSpace(event.RequestID) == "" {
-			return
-		}
-		c.dispatchEvent(event)
 	case "item/agentMessage/delta":
 		var payload agentMessageDeltaNotification
 		if err := json.Unmarshal(resp.Params, &payload); err != nil {

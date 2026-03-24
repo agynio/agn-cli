@@ -17,8 +17,7 @@ import (
 const previewMaxRunes = 120
 
 type LocalStore struct {
-	basePath   string
-	legacyPath string
+	basePath string
 }
 
 type persistedThread struct {
@@ -42,14 +41,6 @@ func DefaultLocalPath() (string, error) {
 	return filepath.Join(home, ".agyn", "agn", "threads"), nil
 }
 
-func legacyLocalPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home dir: %w", err)
-	}
-	return filepath.Join(home, ".agyn", "agn", "state"), nil
-}
-
 func NewLocalStore(basePath string) (*LocalStore, error) {
 	if basePath == "" {
 		return nil, errors.New("base path is required")
@@ -62,16 +53,7 @@ func NewDefaultLocalStore() (*LocalStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	legacyPath, err := legacyLocalPath()
-	if err != nil {
-		return nil, err
-	}
-	store, err := NewLocalStore(path)
-	if err != nil {
-		return nil, err
-	}
-	store.legacyPath = legacyPath
-	return store, nil
+	return NewLocalStore(path)
 }
 
 func (s *LocalStore) Load(ctx context.Context, threadID string) (Thread, error) {
@@ -87,12 +69,6 @@ func (s *LocalStore) Load(ctx context.Context, threadID string) (Thread, error) 
 	data, err := readThreadFile(s.basePath, threadID)
 	if err != nil {
 		return Thread{}, err
-	}
-	if data == nil && s.legacyPath != "" {
-		data, err = readThreadFile(s.legacyPath, threadID)
-		if err != nil {
-			return Thread{}, err
-		}
 	}
 	if data == nil {
 		return Thread{ID: threadID, Messages: []MessageRecord{}}, nil
@@ -173,38 +149,17 @@ func (s *LocalStore) List(ctx context.Context) ([]ThreadSummary, error) {
 	default:
 	}
 
-	canonical, err := listThreads(ctx, s.basePath)
+	threads, err := listThreads(ctx, s.basePath)
 	if err != nil {
 		return nil, err
 	}
-	combined := make(map[string]ThreadSummary, len(canonical))
-	for _, summary := range canonical {
-		combined[summary.ID] = summary
-	}
-	if s.legacyPath != "" {
-		legacy, err := listThreads(ctx, s.legacyPath)
-		if err != nil {
-			return nil, err
+	sort.Slice(threads, func(i, j int) bool {
+		if threads[i].UpdatedAt.Equal(threads[j].UpdatedAt) {
+			return threads[i].ID < threads[j].ID
 		}
-		for _, summary := range legacy {
-			if _, ok := combined[summary.ID]; ok {
-				continue
-			}
-			combined[summary.ID] = summary
-		}
-	}
-
-	result := make([]ThreadSummary, 0, len(combined))
-	for _, summary := range combined {
-		result = append(result, summary)
-	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].UpdatedAt.Equal(result[j].UpdatedAt) {
-			return result[i].ID < result[j].ID
-		}
-		return result[i].UpdatedAt.After(result[j].UpdatedAt)
+		return threads[i].UpdatedAt.After(threads[j].UpdatedAt)
 	})
-	return result, nil
+	return threads, nil
 }
 
 func readThreadFile(basePath, threadID string) ([]byte, error) {
