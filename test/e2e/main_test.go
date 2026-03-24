@@ -21,11 +21,21 @@ type testEnv struct {
 	env  []string
 }
 
+type testConfig struct {
+	Endpoint string
+	APIKey   string
+	Model    string
+}
+
 var (
 	buildOnce sync.Once
 	buildErr  error
 	agnBinary string
 )
+
+func TestMain(m *testing.M) {
+	os.Exit(m.Run())
+}
 
 func TestAgnExecHello(t *testing.T) {
 	server := newStubServer(t)
@@ -257,4 +267,27 @@ func parseThreadID(t *testing.T, stderr string) string {
 	}
 	t.Fatalf("thread_id not found in stderr: %q", stderr)
 	return ""
+}
+
+func loadTestConfig(t *testing.T) testConfig {
+	t.Helper()
+
+	endpoint := strings.TrimSpace(os.Getenv("TESTLLM_ENDPOINT"))
+	if endpoint == "" {
+		t.Skip("TESTLLM_ENDPOINT is not set; skipping TestLLM-backed tests")
+	}
+
+	return testConfig{
+		Endpoint: endpoint,
+		APIKey:   envOrDefault("TESTLLM_API_KEY", "e2e-dummy-key"),
+		Model:    envOrDefault("TESTLLM_MODEL", "system-prompt"),
+	}
+}
+
+func envOrDefault(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
 }
