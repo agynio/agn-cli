@@ -2,8 +2,41 @@
 
 package e2e
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
-func TestPlaceholder(t *testing.T) {
-	t.Log("e2e placeholder")
+type testConfig struct {
+	Endpoint string
+	APIKey   string
+	Model    string
+}
+
+func TestMain(m *testing.M) {
+	os.Exit(m.Run())
+}
+
+func loadTestConfig(t *testing.T) testConfig {
+	t.Helper()
+
+	endpoint := strings.TrimSpace(os.Getenv("TESTLLM_ENDPOINT"))
+	if endpoint == "" {
+		t.Fatal("TESTLLM_ENDPOINT is required")
+	}
+
+	return testConfig{
+		Endpoint: endpoint,
+		APIKey:   envOrDefault("TESTLLM_API_KEY", "e2e-dummy-key"),
+		Model:    envOrDefault("TESTLLM_MODEL", "system-prompt"),
+	}
+}
+
+func envOrDefault(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
 }
