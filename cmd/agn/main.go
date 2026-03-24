@@ -34,6 +34,8 @@ func main() {
 }
 
 func execCommand() *cobra.Command {
+	var conversationID string
+
 	cmd := &cobra.Command{
 		Use:   "exec <prompt>",
 		Short: "Run a single prompt and exit",
@@ -53,15 +55,21 @@ func execCommand() *cobra.Command {
 			}
 			defer cleanup()
 			result, err := agent.Run(cmd.Context(), loop.Input{
-				Prompt: message.NewHumanMessage(prompt),
+				Prompt:         message.NewHumanMessage(prompt),
+				ConversationID: strings.TrimSpace(conversationID),
 			})
 			if err != nil {
 				return err
 			}
 			_, err = fmt.Fprintln(cmd.OutOrStdout(), result.Response)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.ErrOrStderr(), "conversation_id: %s\n", result.ConversationID)
 			return err
 		},
 	}
+	cmd.Flags().StringVar(&conversationID, "conversation-id", "", "Conversation ID to resume")
 	return cmd
 }
 
