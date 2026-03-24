@@ -101,7 +101,7 @@ func (s *Summarizer) Summarize(ctx context.Context, messages []state.MessageReco
 		return messages, nil
 	}
 
-	instructions := "Summarize the conversation history. Keep decisions, tool usage, and requirements. Be concise."
+	instructions := "Summarize the thread history. Keep decisions, tool usage, and requirements. Be concise."
 	user := message.NewHumanMessage(input)
 	inputs, err := llm.MessagesToInput([]message.Message{user})
 	if err != nil {

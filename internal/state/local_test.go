@@ -23,7 +23,7 @@ func TestLocalStoreSaveLoadRoundTrip(t *testing.T) {
 	store := newLocalStore(t)
 	ctx := context.Background()
 	createdAt := time.Date(2024, 10, 12, 8, 0, 0, 0, time.UTC)
-	conversation := Conversation{
+	thread := Thread{
 		ID: "conv-1",
 		Messages: []MessageRecord{
 			{
@@ -41,12 +41,12 @@ func TestLocalStoreSaveLoadRoundTrip(t *testing.T) {
 		},
 	}
 	before := time.Now().UTC()
-	require.NoError(t, store.Save(ctx, conversation))
+	require.NoError(t, store.Save(ctx, thread))
 
-	loaded, err := store.Load(ctx, conversation.ID)
+	loaded, err := store.Load(ctx, thread.ID)
 	require.NoError(t, err)
-	require.Equal(t, conversation.ID, loaded.ID)
-	require.Equal(t, conversation.Messages, loaded.Messages)
+	require.Equal(t, thread.ID, loaded.ID)
+	require.Equal(t, thread.Messages, loaded.Messages)
 	require.False(t, loaded.UpdatedAt.IsZero())
 	require.True(t, loaded.UpdatedAt.Equal(before) || loaded.UpdatedAt.After(before))
 }
@@ -54,10 +54,10 @@ func TestLocalStoreSaveLoadRoundTrip(t *testing.T) {
 func TestLocalStoreLoadMissing(t *testing.T) {
 	store := newLocalStore(t)
 	ctx := context.Background()
-	conv, err := store.Load(ctx, "missing")
+	thread, err := store.Load(ctx, "missing")
 	require.NoError(t, err)
-	require.Equal(t, "missing", conv.ID)
-	require.Empty(t, conv.Messages)
+	require.Equal(t, "missing", thread.ID)
+	require.Empty(t, thread.Messages)
 }
 
 func TestLocalStoreLoadSaveEmptyID(t *testing.T) {
@@ -65,14 +65,14 @@ func TestLocalStoreLoadSaveEmptyID(t *testing.T) {
 	ctx := context.Background()
 	_, err := store.Load(ctx, "")
 	require.Error(t, err)
-	returnErr := store.Save(ctx, Conversation{})
+	returnErr := store.Save(ctx, Thread{})
 	require.Error(t, returnErr)
 }
 
 func TestLocalStoreLoadMismatchedID(t *testing.T) {
 	store := newLocalStore(t)
 	ctx := context.Background()
-	writePersistedConversation(t, store.basePath, "expected", persistedConversation{
+	writePersistedThread(t, store.basePath, "expected", persistedThread{
 		ID:        "other",
 		UpdatedAt: time.Now().UTC(),
 		Messages:  []persistedMessage{persistedMessageFixture(t)},
@@ -87,7 +87,7 @@ func TestLocalStoreLoadZeroTokenCount(t *testing.T) {
 	ctx := context.Background()
 	msg := persistedMessageFixture(t)
 	msg.TokenCount = 0
-	writePersistedConversation(t, store.basePath, "conv-1", persistedConversation{
+	writePersistedThread(t, store.basePath, "conv-1", persistedThread{
 		ID:        "conv-1",
 		UpdatedAt: time.Now().UTC(),
 		Messages:  []persistedMessage{msg},
@@ -110,7 +110,7 @@ func TestLocalStoreLoadCorruptJSON(t *testing.T) {
 func TestLocalStoreMultipleSaveLoadCycles(t *testing.T) {
 	store := newLocalStore(t)
 	ctx := context.Background()
-	conversation := Conversation{
+	thread := Thread{
 		ID: "conv-1",
 		Messages: []MessageRecord{
 			{
@@ -122,13 +122,13 @@ func TestLocalStoreMultipleSaveLoadCycles(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, store.Save(ctx, conversation))
-	loaded, err := store.Load(ctx, conversation.ID)
+	require.NoError(t, store.Save(ctx, thread))
+	loaded, err := store.Load(ctx, thread.ID)
 	require.NoError(t, err)
-	require.Equal(t, conversation.Messages, loaded.Messages)
+	require.Equal(t, thread.Messages, loaded.Messages)
 
 	require.NoError(t, store.Save(ctx, loaded))
-	loadedAgain, err := store.Load(ctx, conversation.ID)
+	loadedAgain, err := store.Load(ctx, thread.ID)
 	require.NoError(t, err)
 	require.Equal(t, loaded.Messages, loadedAgain.Messages)
 }
@@ -140,12 +140,12 @@ func newLocalStore(t *testing.T) *LocalStore {
 	return store
 }
 
-func writePersistedConversation(t *testing.T, basePath, conversationID string, conversation persistedConversation) {
+func writePersistedThread(t *testing.T, basePath, threadID string, thread persistedThread) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(basePath, 0o755))
-	data, err := json.Marshal(conversation)
+	data, err := json.Marshal(thread)
 	require.NoError(t, err)
-	path := filepath.Join(basePath, conversationID+".json")
+	path := filepath.Join(basePath, threadID+".json")
 	require.NoError(t, os.WriteFile(path, data, 0o644))
 }
 

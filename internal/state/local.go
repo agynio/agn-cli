@@ -7,16 +7,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/agynio/agn-cli/internal/message"
 )
 
+const previewMaxRunes = 120
+
 type LocalStore struct {
-	basePath string
+	basePath   string
+	legacyPath string
 }
 
-type persistedConversation struct {
+type persistedThread struct {
 	ID        string             `json:"id"`
 	UpdatedAt time.Time          `json:"updated_at"`
 	Messages  []persistedMessage `json:"messages"`
@@ -30,6 +35,14 @@ type persistedMessage struct {
 }
 
 func DefaultLocalPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return filepath.Join(home, ".agyn", "agn", "threads"), nil
+}
+
+func legacyLocalPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve home dir: %w", err)
@@ -49,67 +62,52 @@ func NewDefaultLocalStore() (*LocalStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewLocalStore(path)
+	legacyPath, err := legacyLocalPath()
+	if err != nil {
+		return nil, err
+	}
+	store, err := NewLocalStore(path)
+	if err != nil {
+		return nil, err
+	}
+	store.legacyPath = legacyPath
+	return store, nil
 }
 
-func (s *LocalStore) Load(ctx context.Context, conversationID string) (Conversation, error) {
-	if conversationID == "" {
-		return Conversation{}, errors.New("conversation ID is required")
+func (s *LocalStore) Load(ctx context.Context, threadID string) (Thread, error) {
+	if threadID == "" {
+		return Thread{}, errors.New("thread ID is required")
 	}
 	select {
 	case <-ctx.Done():
-		return Conversation{}, ctx.Err()
+		return Thread{}, ctx.Err()
 	default:
 	}
 
-	path := filepath.Join(s.basePath, fmt.Sprintf("%s.json", conversationID))
-	data, err := os.ReadFile(path)
+	data, err := readThreadFile(s.basePath, threadID)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return Conversation{ID: conversationID, Messages: []MessageRecord{}}, nil
-		}
-		return Conversation{}, fmt.Errorf("read conversation: %w", err)
+		return Thread{}, err
 	}
-
-	var persisted persistedConversation
-	if err := json.Unmarshal(data, &persisted); err != nil {
-		return Conversation{}, fmt.Errorf("parse conversation: %w", err)
-	}
-
-	if persisted.ID == "" {
-		return Conversation{}, errors.New("conversation ID missing in persisted state")
-	}
-	if persisted.ID != conversationID {
-		return Conversation{}, fmt.Errorf("conversation ID mismatch: %s", persisted.ID)
-	}
-
-	messages := make([]MessageRecord, 0, len(persisted.Messages))
-	for _, item := range persisted.Messages {
-		msg, err := message.Decode(item.Envelope)
+	if data == nil && s.legacyPath != "" {
+		data, err = readThreadFile(s.legacyPath, threadID)
 		if err != nil {
-			return Conversation{}, fmt.Errorf("decode message: %w", err)
+			return Thread{}, err
 		}
-		if item.TokenCount <= 0 {
-			return Conversation{}, errors.New("message token count missing")
-		}
-		messages = append(messages, MessageRecord{
-			ID:         item.ID,
-			CreatedAt:  item.CreatedAt,
-			TokenCount: item.TokenCount,
-			Message:    msg,
-		})
+	}
+	if data == nil {
+		return Thread{ID: threadID, Messages: []MessageRecord{}}, nil
 	}
 
-	return Conversation{
-		ID:        persisted.ID,
-		Messages:  messages,
-		UpdatedAt: persisted.UpdatedAt,
-	}, nil
+	thread, err := decodeThread(data, threadID)
+	if err != nil {
+		return Thread{}, err
+	}
+	return thread, nil
 }
 
-func (s *LocalStore) Save(ctx context.Context, conversation Conversation) error {
-	if conversation.ID == "" {
-		return errors.New("conversation ID is required")
+func (s *LocalStore) Save(ctx context.Context, thread Thread) error {
+	if thread.ID == "" {
+		return errors.New("thread ID is required")
 	}
 	select {
 	case <-ctx.Done():
@@ -118,16 +116,16 @@ func (s *LocalStore) Save(ctx context.Context, conversation Conversation) error 
 	}
 
 	if err := os.MkdirAll(s.basePath, 0o755); err != nil {
-		return fmt.Errorf("create state directory: %w", err)
+		return fmt.Errorf("create threads directory: %w", err)
 	}
 
-	persisted := persistedConversation{
-		ID:        conversation.ID,
+	persisted := persistedThread{
+		ID:        thread.ID,
 		UpdatedAt: time.Now().UTC(),
-		Messages:  make([]persistedMessage, 0, len(conversation.Messages)),
+		Messages:  make([]persistedMessage, 0, len(thread.Messages)),
 	}
 
-	for _, record := range conversation.Messages {
+	for _, record := range thread.Messages {
 		env, err := message.Encode(record.Message)
 		if err != nil {
 			return fmt.Errorf("encode message: %w", err)
@@ -142,11 +140,11 @@ func (s *LocalStore) Save(ctx context.Context, conversation Conversation) error 
 
 	data, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal conversation: %w", err)
+		return fmt.Errorf("marshal thread: %w", err)
 	}
 
-	path := filepath.Join(s.basePath, fmt.Sprintf("%s.json", conversation.ID))
-	tmp, err := os.CreateTemp(s.basePath, fmt.Sprintf("%s.*.json", conversation.ID))
+	path := filepath.Join(s.basePath, fmt.Sprintf("%s.json", thread.ID))
+	tmp, err := os.CreateTemp(s.basePath, fmt.Sprintf("%s.*.json", thread.ID))
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}
@@ -162,8 +160,172 @@ func (s *LocalStore) Save(ctx context.Context, conversation Conversation) error 
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		_ = os.Remove(tmp.Name())
-		return fmt.Errorf("commit state file: %w", err)
+		return fmt.Errorf("commit thread file: %w", err)
 	}
 
 	return nil
+}
+
+func (s *LocalStore) List(ctx context.Context) ([]ThreadSummary, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	canonical, err := listThreads(ctx, s.basePath)
+	if err != nil {
+		return nil, err
+	}
+	combined := make(map[string]ThreadSummary, len(canonical))
+	for _, summary := range canonical {
+		combined[summary.ID] = summary
+	}
+	if s.legacyPath != "" {
+		legacy, err := listThreads(ctx, s.legacyPath)
+		if err != nil {
+			return nil, err
+		}
+		for _, summary := range legacy {
+			if _, ok := combined[summary.ID]; ok {
+				continue
+			}
+			combined[summary.ID] = summary
+		}
+	}
+
+	result := make([]ThreadSummary, 0, len(combined))
+	for _, summary := range combined {
+		result = append(result, summary)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].UpdatedAt.Equal(result[j].UpdatedAt) {
+			return result[i].ID < result[j].ID
+		}
+		return result[i].UpdatedAt.After(result[j].UpdatedAt)
+	})
+	return result, nil
+}
+
+func readThreadFile(basePath, threadID string) ([]byte, error) {
+	path := filepath.Join(basePath, fmt.Sprintf("%s.json", threadID))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read thread: %w", err)
+	}
+	return data, nil
+}
+
+func decodeThread(data []byte, threadID string) (Thread, error) {
+	var persisted persistedThread
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		return Thread{}, fmt.Errorf("parse thread: %w", err)
+	}
+
+	if persisted.ID == "" {
+		persisted.ID = threadID
+	}
+	if persisted.ID != threadID {
+		return Thread{}, fmt.Errorf("thread ID mismatch: %s", persisted.ID)
+	}
+
+	messages := make([]MessageRecord, 0, len(persisted.Messages))
+	for _, item := range persisted.Messages {
+		msg, err := message.Decode(item.Envelope)
+		if err != nil {
+			return Thread{}, fmt.Errorf("decode message: %w", err)
+		}
+		if item.TokenCount <= 0 {
+			return Thread{}, errors.New("message token count missing")
+		}
+		messages = append(messages, MessageRecord{
+			ID:         item.ID,
+			CreatedAt:  item.CreatedAt,
+			TokenCount: item.TokenCount,
+			Message:    msg,
+		})
+	}
+
+	return Thread{
+		ID:        persisted.ID,
+		Messages:  messages,
+		UpdatedAt: persisted.UpdatedAt,
+	}, nil
+}
+
+func listThreads(ctx context.Context, basePath string) ([]ThreadSummary, error) {
+	entries, err := os.ReadDir(basePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read threads directory: %w", err)
+	}
+	result := make([]ThreadSummary, 0, len(entries))
+	for _, entry := range entries {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		if entry.IsDir() {
+			continue
+		}
+		if filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		path := filepath.Join(basePath, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read thread: %w", err)
+		}
+		var persisted persistedThread
+		if err := json.Unmarshal(data, &persisted); err != nil {
+			return nil, fmt.Errorf("parse thread: %w", err)
+		}
+		id := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+		if persisted.ID == "" {
+			persisted.ID = id
+		}
+		if persisted.ID != id {
+			return nil, fmt.Errorf("thread ID mismatch: %s", persisted.ID)
+		}
+		summary, err := summarizeThread(persisted)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, summary)
+	}
+	return result, nil
+}
+
+func summarizeThread(persisted persistedThread) (ThreadSummary, error) {
+	preview := ""
+	for _, item := range persisted.Messages {
+		msg, err := message.Decode(item.Envelope)
+		if err != nil {
+			return ThreadSummary{}, fmt.Errorf("decode message: %w", err)
+		}
+		human, ok := msg.(message.HumanMessage)
+		if ok {
+			preview = strings.TrimSpace(human.Text)
+			break
+		}
+	}
+	preview = truncatePreview(preview, previewMaxRunes)
+	return ThreadSummary{ID: persisted.ID, Preview: preview, UpdatedAt: persisted.UpdatedAt}, nil
+}
+
+func truncatePreview(text string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit])
 }

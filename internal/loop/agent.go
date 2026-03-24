@@ -26,13 +26,18 @@ const (
 type EventType string
 
 const (
-	EventModelDelta EventType = "model_delta"
-	EventToolCall   EventType = "tool_call"
-	EventToolResult EventType = "tool_result"
+	EventModelDelta  EventType = "model_delta"
+	EventTurnStarted EventType = "turn_started"
+	EventTurnDone    EventType = "turn_done"
+	EventItemStarted EventType = "item_started"
+	EventItemDone    EventType = "item_done"
 )
 
 type Event struct {
 	Type       EventType
+	ThreadID   string
+	TurnID     string
+	ItemID     string
 	Delta      string
 	ToolName   string
 	ToolCallID string
@@ -41,7 +46,7 @@ type Event struct {
 type EventSink func(Event)
 
 type Input struct {
-	ConversationID string
+	ThreadID       string
 	Prompt         message.HumanMessage
 	RestrictOutput bool
 	Stream         bool
@@ -49,12 +54,13 @@ type Input struct {
 }
 
 type Result struct {
-	ConversationID string
-	Response       string
+	ThreadID string
+	Response string
 }
 
 type State struct {
-	Conversation     state.Conversation
+	Thread           state.Thread
+	TurnID           string
 	Input            *message.HumanMessage
 	RestrictOutput   bool
 	Stream           bool
@@ -131,9 +137,9 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 }
 
 func (a *Agent) Run(ctx context.Context, input Input) (Result, error) {
-	conversationID := strings.TrimSpace(input.ConversationID)
-	if conversationID == "" {
-		conversationID = uuid.NewString()
+	threadID := strings.TrimSpace(input.ThreadID)
+	if threadID == "" {
+		threadID = uuid.NewString()
 	}
 	if strings.TrimSpace(input.Prompt.Text) == "" {
 		return Result{}, errors.New("prompt is required")
@@ -141,8 +147,14 @@ func (a *Agent) Run(ctx context.Context, input Input) (Result, error) {
 	if input.Stream && input.EventSink == nil {
 		return Result{}, errors.New("streaming requires an event sink")
 	}
+	turnID := uuid.NewString()
+	if input.EventSink != nil {
+		input.EventSink(Event{Type: EventTurnStarted, ThreadID: threadID, TurnID: turnID})
+		defer input.EventSink(Event{Type: EventTurnDone, ThreadID: threadID, TurnID: turnID})
+	}
 	state := &State{
-		Conversation:   state.Conversation{ID: conversationID},
+		Thread:         state.Thread{ID: threadID, Messages: []state.MessageRecord{}},
+		TurnID:         turnID,
 		Input:          &input.Prompt,
 		RestrictOutput: input.RestrictOutput,
 		Stream:         input.Stream,
@@ -154,21 +166,21 @@ func (a *Agent) Run(ctx context.Context, input Input) (Result, error) {
 	if strings.TrimSpace(state.LastAssistant) == "" {
 		return Result{}, errors.New("no response generated")
 	}
-	return Result{ConversationID: conversationID, Response: state.LastAssistant}, nil
+	return Result{ThreadID: threadID, Response: state.LastAssistant}, nil
 }
 
 func (a *Agent) load(ctx context.Context, state *State) error {
-	conv, err := a.store.Load(ctx, state.Conversation.ID)
+	thread, err := a.store.Load(ctx, state.Thread.ID)
 	if err != nil {
 		return err
 	}
-	state.Conversation = conv
+	state.Thread = thread
 	if state.Input != nil {
-		record, err := a.recordFromMessage(*state.Input)
+		record, err := a.recordFromMessage("", *state.Input)
 		if err != nil {
 			return err
 		}
-		state.Conversation.Messages = append(state.Conversation.Messages, record)
+		state.Thread.Messages = append(state.Thread.Messages, record)
 	}
 	if a.mcp != nil {
 		tools, err := a.mcp.ListTools(ctx)
@@ -184,11 +196,11 @@ func (a *Agent) load(ctx context.Context, state *State) error {
 }
 
 func (a *Agent) summarize(ctx context.Context, state *State) error {
-	updated, err := a.summarizer.Summarize(ctx, state.Conversation.Messages)
+	updated, err := a.summarizer.Summarize(ctx, state.Thread.Messages)
 	if err != nil {
 		return err
 	}
-	state.Conversation.Messages = updated
+	state.Thread.Messages = updated
 	return nil
 }
 
@@ -207,10 +219,13 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 		toolChoice.OfToolChoiceMode = openai.Opt(responses.ToolChoiceOptionsRequired)
 	}
 
+	itemID := uuid.NewString()
 	var onDelta func(string)
-	if state.Stream {
+	if state.EventSink != nil {
+		threadID := state.Thread.ID
+		turnID := state.TurnID
 		onDelta = func(delta string) {
-			state.EventSink(Event{Type: EventModelDelta, Delta: delta})
+			state.EventSink(Event{Type: EventModelDelta, ThreadID: threadID, TurnID: turnID, ItemID: itemID, Delta: delta})
 		}
 	}
 
@@ -227,26 +242,21 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 
 	if text != "" {
 		msg := message.NewAIMessage(text)
-		record, err := a.recordFromMessage(msg)
+		record, err := a.recordFromMessage(itemID, msg)
 		if err != nil {
 			return err
 		}
-		state.Conversation.Messages = append(state.Conversation.Messages, record)
+		state.Thread.Messages = append(state.Thread.Messages, record)
 		state.LastAssistant = text
 	}
 	if len(toolCalls) > 0 {
 		msg := message.NewToolCallMessage(toolCalls)
-		record, err := a.recordFromMessage(msg)
+		record, err := a.recordFromMessage("", msg)
 		if err != nil {
 			return err
 		}
-		state.Conversation.Messages = append(state.Conversation.Messages, record)
+		state.Thread.Messages = append(state.Thread.Messages, record)
 		state.PendingToolCalls = toolCalls
-		if state.Stream {
-			for _, call := range toolCalls {
-				state.EventSink(Event{Type: EventToolCall, ToolName: call.Name, ToolCallID: call.ID})
-			}
-		}
 	}
 	state.ForceToolCall = false
 	return nil
@@ -277,6 +287,9 @@ func (a *Agent) callTools(ctx context.Context, state *State) error {
 		return errors.New("mcp client is not configured")
 	}
 	for _, call := range state.PendingToolCalls {
+		if state.EventSink != nil {
+			state.EventSink(Event{Type: EventItemStarted, ThreadID: state.Thread.ID, TurnID: state.TurnID, ItemID: call.ID, ToolName: call.Name})
+		}
 		result, err := a.mcp.CallTool(ctx, mcp.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments})
 		if err != nil {
 			return err
@@ -287,13 +300,13 @@ func (a *Agent) callTools(ctx context.Context, state *State) error {
 			Output:     result.Content,
 		}
 		msg := message.NewToolCallOutputMessage(output)
-		record, err := a.recordFromMessage(msg)
+		record, err := a.recordFromMessage("", msg)
 		if err != nil {
 			return err
 		}
-		state.Conversation.Messages = append(state.Conversation.Messages, record)
-		if state.Stream {
-			state.EventSink(Event{Type: EventToolResult, ToolName: call.Name, ToolCallID: call.ID})
+		state.Thread.Messages = append(state.Thread.Messages, record)
+		if state.EventSink != nil {
+			state.EventSink(Event{Type: EventItemDone, ThreadID: state.Thread.ID, TurnID: state.TurnID, ItemID: call.ID, ToolName: call.Name})
 		}
 	}
 	state.PendingToolCalls = nil
@@ -304,17 +317,20 @@ func (a *Agent) save(ctx context.Context, state *State) error {
 	if strings.TrimSpace(state.LastAssistant) == "" {
 		return errors.New("no assistant response to save")
 	}
-	state.Conversation.UpdatedAt = time.Now().UTC()
-	return a.store.Save(ctx, state.Conversation)
+	state.Thread.UpdatedAt = time.Now().UTC()
+	return a.store.Save(ctx, state.Thread)
 }
 
-func (a *Agent) recordFromMessage(msg message.Message) (state.MessageRecord, error) {
+func (a *Agent) recordFromMessage(recordID string, msg message.Message) (state.MessageRecord, error) {
 	count, err := a.summarizer.CountTokens(msg)
 	if err != nil {
 		return state.MessageRecord{}, err
 	}
+	if strings.TrimSpace(recordID) == "" {
+		recordID = uuid.NewString()
+	}
 	return state.MessageRecord{
-		ID:         uuid.NewString(),
+		ID:         recordID,
 		CreatedAt:  time.Now().UTC(),
 		TokenCount: count,
 		Message:    msg,
@@ -322,8 +338,8 @@ func (a *Agent) recordFromMessage(msg message.Message) (state.MessageRecord, err
 }
 
 func (a *Agent) buildContextMessages(state *State) ([]message.Message, error) {
-	contextMessages := make([]message.Message, 0, len(state.Conversation.Messages))
-	for _, record := range state.Conversation.Messages {
+	contextMessages := make([]message.Message, 0, len(state.Thread.Messages))
+	for _, record := range state.Thread.Messages {
 		if !message.IsContextMessage(record.Message) {
 			continue
 		}
