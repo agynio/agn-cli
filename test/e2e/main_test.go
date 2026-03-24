@@ -274,7 +274,7 @@ func loadTestConfig(t *testing.T) testConfig {
 
 	endpoint := strings.TrimSpace(os.Getenv("TESTLLM_ENDPOINT"))
 	if endpoint == "" {
-		t.Fatal("TESTLLM_ENDPOINT is required")
+		t.Skip("TESTLLM_ENDPOINT is not set; skipping TestLLM-backed tests")
 	}
 
 	return testConfig{
