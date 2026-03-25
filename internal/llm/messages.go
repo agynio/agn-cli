@@ -28,7 +28,7 @@ func messageToInputItems(msg message.Message) ([]responses.ResponseInputItemUnio
 	switch typed := msg.(type) {
 	case message.SystemMessage:
 		return []responses.ResponseInputItemUnionParam{
-			responses.ResponseInputItemParamOfMessage(typed.Text, responses.EasyInputMessageRoleDeveloper),
+			responses.ResponseInputItemParamOfMessage(typed.Text, responses.EasyInputMessageRoleSystem),
 		}, nil
 	case message.HumanMessage:
 		return []responses.ResponseInputItemUnionParam{

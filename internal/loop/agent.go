@@ -213,7 +213,7 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 	if err != nil {
 		return err
 	}
-	instructions := strings.TrimSpace(a.systemPrompt)
+	instructions := ""
 	toolChoice := responses.ResponseNewParamsToolChoiceUnion{}
 	if state.ForceToolCall {
 		toolChoice.OfToolChoiceMode = openai.Opt(responses.ToolChoiceOptionsRequired)
@@ -338,7 +338,10 @@ func (a *Agent) recordFromMessage(recordID string, msg message.Message) (state.M
 }
 
 func (a *Agent) buildContextMessages(state *State) ([]message.Message, error) {
-	contextMessages := make([]message.Message, 0, len(state.Thread.Messages))
+	contextMessages := make([]message.Message, 0, len(state.Thread.Messages)+1)
+	if strings.TrimSpace(a.systemPrompt) != "" {
+		contextMessages = append(contextMessages, message.NewSystemMessage(a.systemPrompt))
+	}
 	for _, record := range state.Thread.Messages {
 		if !message.IsContextMessage(record.Message) {
 			continue
