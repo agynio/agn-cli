@@ -213,7 +213,7 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 	if err != nil {
 		return err
 	}
-	instructions := strings.TrimSpace(a.systemPrompt)
+	instructions := ""
 	toolChoice := responses.ResponseNewParamsToolChoiceUnion{}
 	if state.ForceToolCall {
 		toolChoice.OfToolChoiceMode = openai.Opt(responses.ToolChoiceOptionsRequired)

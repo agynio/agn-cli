@@ -102,7 +102,9 @@ func newTestEnv(t *testing.T, model string, systemPrompt string) testEnv {
 			Auth:     config.AuthConfig{APIKey: "dummy"},
 			Model:    model,
 		},
-		SystemPrompt: systemPrompt,
+	}
+	if strings.TrimSpace(systemPrompt) != "" {
+		configData.SystemPrompt = systemPrompt
 	}
 	payload, err := yaml.Marshal(configData)
 	require.NoError(t, err)
