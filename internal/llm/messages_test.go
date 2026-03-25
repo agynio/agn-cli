@@ -28,8 +28,8 @@ func TestMessagesToInputMappings(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, inputs, 7)
 
-	requireMessageInput(t, inputs[0], responses.EasyInputMessageRoleDeveloper, "system")
-	requireMessageInput(t, inputs[1], responses.EasyInputMessageRoleDeveloper, "summary")
+	requireMessageInput(t, inputs[0], responses.EasyInputMessageRoleSystem, "system")
+	requireMessageInput(t, inputs[1], responses.EasyInputMessageRoleSystem, "summary")
 	requireMessageInput(t, inputs[2], responses.EasyInputMessageRoleUser, "human")
 	requireMessageInput(t, inputs[3], responses.EasyInputMessageRoleAssistant, "assistant")
 	requireFunctionCallInput(t, inputs[4], toolCalls[0])
