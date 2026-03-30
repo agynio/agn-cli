@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -14,9 +15,14 @@ type HTTPClient struct {
 	session *mcpsdk.ClientSession
 }
 
+const (
+	mcpClientName    = "agn"
+	mcpClientVersion = "0.1.0"
+)
+
 func NewHTTPClient(ctx context.Context, url string) (*HTTPClient, error) {
 	client := mcpsdk.NewClient(
-		&mcpsdk.Implementation{Name: "agn", Version: "0.1.0"},
+		&mcpsdk.Implementation{Name: mcpClientName, Version: mcpClientVersion},
 		nil,
 	)
 	transport := &mcpsdk.StreamableClientTransport{
@@ -62,9 +68,6 @@ func (h *HTTPClient) CallTool(ctx context.Context, call ToolCall) (ToolResult, e
 		if err := json.Unmarshal(call.Arguments, &arguments); err != nil {
 			return ToolResult{}, fmt.Errorf("parse tool arguments: %w", err)
 		}
-		if arguments == nil {
-			arguments = map[string]any{}
-		}
 	}
 	result, err := h.session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      call.Name,
@@ -78,8 +81,13 @@ func (h *HTTPClient) CallTool(ctx context.Context, call ToolCall) (ToolResult, e
 	}
 	var textParts []string
 	for _, content := range result.Content {
-		if textContent, ok := content.(*mcpsdk.TextContent); ok {
-			textParts = append(textParts, textContent.Text)
+		switch typed := content.(type) {
+		case *mcpsdk.TextContent:
+			textParts = append(textParts, typed.Text)
+		case nil:
+			fmt.Fprintln(os.Stderr, "mcp: skipped non-text tool content <nil>")
+		default:
+			fmt.Fprintf(os.Stderr, "mcp: skipped non-text tool content %T\n", content)
 		}
 	}
 	content := strings.TrimSpace(strings.Join(textParts, "\n"))

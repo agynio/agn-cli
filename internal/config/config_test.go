@@ -234,3 +234,21 @@ mcp:
 	require.Error(t, err)
 	require.ErrorContains(t, err, "args are only valid with command")
 }
+
+func TestLoadConfigWithMCPMissingCommandAndURL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+mcp:
+  servers:
+    weather: {}
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "mcp.servers.weather.exactly one of command or url is required")
+}

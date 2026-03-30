@@ -175,20 +175,13 @@ func (s MCPServerConfig) Validate() error {
 	if commandSet == urlSet {
 		return errors.New("exactly one of command or url is required")
 	}
-	if commandSet {
-		if strings.TrimSpace(s.Command) == "" {
-			return errors.New("command is required")
+	if urlSet {
+		if len(s.Args) > 0 {
+			return errors.New("args are only valid with command")
 		}
-		return nil
-	}
-	if strings.TrimSpace(s.URL) == "" {
-		return errors.New("url is required")
-	}
-	if len(s.Args) > 0 {
-		return errors.New("args are only valid with command")
-	}
-	if len(s.Env) > 0 {
-		return errors.New("env is only valid with command")
+		if len(s.Env) > 0 {
+			return errors.New("env is only valid with command")
+		}
 	}
 	return nil
 }

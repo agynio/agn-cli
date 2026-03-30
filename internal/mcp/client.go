@@ -89,6 +89,9 @@ func NewProcessClient(ctx context.Context, command string, args ...string) (*Cli
 }
 
 func NewProcessClientWithEnv(ctx context.Context, command string, args []string, env []string) (*Client, error) {
+	if strings.TrimSpace(command) == "" {
+		return nil, errors.New("command is required")
+	}
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Env = env
 	cmd.Stderr = os.Stderr
