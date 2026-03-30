@@ -14,14 +14,21 @@ import (
 const configEnvVar = "AGN_CONFIG_PATH"
 
 type Config struct {
-	LLM          LLMConfig `yaml:"llm"`
-	SystemPrompt string    `yaml:"system_prompt"`
+	LLM           LLMConfig           `yaml:"llm"`
+	SystemPrompt  string              `yaml:"system_prompt"`
+	Summarization SummarizationConfig `yaml:"summarization"`
 }
 
 type LLMConfig struct {
 	Endpoint string     `yaml:"endpoint"`
 	Auth     AuthConfig `yaml:"auth"`
 	Model    string     `yaml:"model"`
+}
+
+type SummarizationConfig struct {
+	LLM        *LLMConfig `yaml:"llm"`
+	KeepTokens int        `yaml:"keep_tokens"`
+	MaxTokens  int        `yaml:"max_tokens"`
 }
 
 type AuthConfig struct {
@@ -68,18 +75,38 @@ func Load(path string) (Config, error) {
 }
 
 func (c Config) Validate() error {
-	if strings.TrimSpace(c.LLM.Endpoint) == "" {
+	if err := c.LLM.Validate(); err != nil {
+		return err
+	}
+	if err := c.Summarization.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c LLMConfig) Validate() error {
+	if strings.TrimSpace(c.Endpoint) == "" {
 		return errors.New("llm.endpoint is required")
 	}
-	parsed, err := url.Parse(c.LLM.Endpoint)
+	parsed, err := url.Parse(c.Endpoint)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return fmt.Errorf("llm.endpoint is invalid: %q", c.LLM.Endpoint)
+		return fmt.Errorf("llm.endpoint is invalid: %q", c.Endpoint)
 	}
-	if strings.TrimSpace(c.LLM.Model) == "" {
+	if strings.TrimSpace(c.Model) == "" {
 		return errors.New("llm.model is required")
 	}
-	if err := c.LLM.Auth.Validate(); err != nil {
+	if err := c.Auth.Validate(); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (s SummarizationConfig) Validate() error {
+	if s.LLM == nil {
+		return nil
+	}
+	if err := s.LLM.Validate(); err != nil {
+		return fmt.Errorf("summarization.%s", err)
 	}
 	return nil
 }

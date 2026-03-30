@@ -48,3 +48,87 @@ func TestLoadConfigWithAPIKeyEnv(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "env-key", key)
 }
+
+func TestLoadConfigWithSummarizationLLM(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+summarization:
+  llm:
+    endpoint: https://api.openai.com/v1
+    auth:
+      api_key: sum-key
+    model: gpt-4.1-mini
+  keep_tokens: 42
+  max_tokens: 100
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Summarization.LLM)
+	require.Equal(t, 42, cfg.Summarization.KeepTokens)
+	require.Equal(t, 100, cfg.Summarization.MaxTokens)
+	require.Equal(t, "gpt-4.1-mini", cfg.Summarization.LLM.Model)
+}
+
+func TestLoadConfigWithoutSummarization(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Nil(t, cfg.Summarization.LLM)
+	require.Equal(t, 0, cfg.Summarization.KeepTokens)
+	require.Equal(t, 0, cfg.Summarization.MaxTokens)
+}
+
+func TestLoadConfigWithSummarizationThresholds(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+summarization:
+  keep_tokens: 10
+  max_tokens: 20
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Nil(t, cfg.Summarization.LLM)
+	require.Equal(t, 10, cfg.Summarization.KeepTokens)
+	require.Equal(t, 20, cfg.Summarization.MaxTokens)
+}
+
+func TestLoadConfigInvalidSummarizationLLM(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+summarization:
+  llm:
+    endpoint: not a url
+    auth:
+      api_key: sum-key
+    model: gpt-4.1-mini
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "summarization.llm.endpoint")
+}
