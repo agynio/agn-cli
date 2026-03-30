@@ -171,7 +171,25 @@ func buildAgent(ctx context.Context, cfg config.Config) (*loop.Agent, state.Stor
 	if err != nil {
 		return nil, nil, func() {}, err
 	}
-	summarizer, err := summarize.New(llmClient, summarize.Config{})
+	summarizerClient := llmClient
+	if cfg.Summarization.LLM != nil {
+		summarizerKey, err := cfg.Summarization.LLM.Auth.ResolveAPIKey()
+		if err != nil {
+			return nil, nil, func() {}, err
+		}
+		summarizerClient, err = llm.NewClient(
+			cfg.Summarization.LLM.Endpoint,
+			summarizerKey,
+			cfg.Summarization.LLM.Model,
+		)
+		if err != nil {
+			return nil, nil, func() {}, err
+		}
+	}
+	summarizer, err := summarize.New(summarizerClient, summarize.Config{
+		KeepTokens: cfg.Summarization.KeepTokens,
+		MaxTokens:  cfg.Summarization.MaxTokens,
+	})
 	if err != nil {
 		return nil, nil, func() {}, err
 	}
