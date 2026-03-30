@@ -25,6 +25,12 @@ const (
 	followupReply   = "After integrated circuits came microprocessors and personal computers."
 )
 
+type summarizationTestEnv struct {
+	home  string
+	turn1 []string
+	turn2 []string
+}
+
 func TestSummarization(t *testing.T) {
 	env := newSummarizationTestEnv(t)
 	binary := buildAgnBinary(t)
@@ -33,11 +39,11 @@ func TestSummarization(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	stdout, stderr := runAgnWithContext(t, ctx, binary, env.env, "exec", "--thread-id", threadID, summarizePrompt)
+	stdout, stderr := runAgnWithContext(t, ctx, binary, env.turn1, "exec", "--thread-id", threadID, summarizePrompt)
 	require.Equal(t, summarizeReply, strings.TrimSpace(stdout))
 	require.Equal(t, threadID, parseThreadID(t, stderr))
 
-	stdout, stderr = runAgnWithContext(t, ctx, binary, env.env, "exec", "resume", threadID, followupPrompt)
+	stdout, stderr = runAgnWithContext(t, ctx, binary, env.turn2, "exec", "resume", threadID, followupPrompt)
 	require.Equal(t, followupReply, strings.TrimSpace(stdout))
 	require.Equal(t, threadID, parseThreadID(t, stderr))
 
@@ -74,29 +80,51 @@ func TestSummarization(t *testing.T) {
 	require.Equal(t, string(message.RoleAssistant), assistant.Message.Role)
 }
 
-func newSummarizationTestEnv(t *testing.T) testEnv {
+func newSummarizationTestEnv(t *testing.T) summarizationTestEnv {
 	t.Helper()
 	home := t.TempDir()
-	configPath := filepath.Join(home, "config.yaml")
-	configData := config.Config{
+
+	summarizationLLM := &config.LLMConfig{
+		Endpoint: testLLMEndpoint,
+		Auth:     config.AuthConfig{APIKey: "dummy"},
+		Model:    "summarize-history",
+	}
+	summarizationCfg := config.SummarizationConfig{
+		LLM:        summarizationLLM,
+		KeepTokens: 4,
+		MaxTokens:  90,
+	}
+
+	turn1Path := filepath.Join(home, "config-turn1.yaml")
+	turn1Config := config.Config{
 		LLM: config.LLMConfig{
 			Endpoint: testLLMEndpoint,
 			Auth:     config.AuthConfig{APIKey: "dummy"},
-			Model:    "summarize-agent",
+			Model:    "summarize-agent-turn1",
 		},
-		Summarization: config.SummarizationConfig{
-			LLM: &config.LLMConfig{
-				Endpoint: testLLMEndpoint,
-				Auth:     config.AuthConfig{APIKey: "dummy"},
-				Model:    "summarize-history",
-			},
-			KeepTokens: 4,
-			MaxTokens:  90,
-		},
+		Summarization: summarizationCfg,
 	}
-	payload, err := yaml.Marshal(configData)
+	turn1Payload, err := yaml.Marshal(turn1Config)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(configPath, payload, 0o600))
-	env := append(os.Environ(), "HOME="+home, "AGN_CONFIG_PATH="+configPath, "AGN_MCP_COMMAND=")
-	return testEnv{home: home, env: env}
+	require.NoError(t, os.WriteFile(turn1Path, turn1Payload, 0o600))
+
+	turn2Path := filepath.Join(home, "config-turn2.yaml")
+	turn2Config := config.Config{
+		LLM: config.LLMConfig{
+			Endpoint: testLLMEndpoint,
+			Auth:     config.AuthConfig{APIKey: "dummy"},
+			Model:    "summarize-agent-turn2",
+		},
+		Summarization: summarizationCfg,
+	}
+	turn2Payload, err := yaml.Marshal(turn2Config)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(turn2Path, turn2Payload, 0o600))
+
+	base := append(os.Environ(), "HOME="+home, "AGN_MCP_COMMAND=")
+	return summarizationTestEnv{
+		home:  home,
+		turn1: append(append([]string{}, base...), "AGN_CONFIG_PATH="+turn1Path),
+		turn2: append(append([]string{}, base...), "AGN_CONFIG_PATH="+turn2Path),
+	}
 }
