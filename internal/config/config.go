@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -17,6 +18,7 @@ type Config struct {
 	LLM           LLMConfig           `yaml:"llm"`
 	SystemPrompt  string              `yaml:"system_prompt"`
 	Summarization SummarizationConfig `yaml:"summarization"`
+	MCP           MCPConfig           `yaml:"mcp"`
 }
 
 type LLMConfig struct {
@@ -35,6 +37,19 @@ type AuthConfig struct {
 	APIKey    string `yaml:"api_key"`
 	APIKeyEnv string `yaml:"api_key_env"`
 }
+
+type MCPConfig struct {
+	Servers map[string]MCPServerConfig `yaml:"servers"`
+}
+
+type MCPServerConfig struct {
+	Command string            `yaml:"command"`
+	Args    []string          `yaml:"args"`
+	Env     map[string]string `yaml:"env"`
+	URL     string            `yaml:"url"`
+}
+
+var mcpServerNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
 
 func DefaultPath() (string, error) {
 	home, err := os.UserHomeDir()
@@ -79,6 +94,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if err := c.Summarization.Validate(); err != nil {
+		return err
+	}
+	if err := c.MCP.Validate(); err != nil {
 		return err
 	}
 	return nil
@@ -132,4 +150,38 @@ func (a AuthConfig) ResolveAPIKey() (string, error) {
 		return "", fmt.Errorf("environment variable %q is empty", a.APIKeyEnv)
 	}
 	return value, nil
+}
+
+func (c MCPConfig) Validate() error {
+	if len(c.Servers) == 0 {
+		return nil
+	}
+	for name, server := range c.Servers {
+		if !mcpServerNamePattern.MatchString(name) {
+			return fmt.Errorf("mcp.servers.%s name is invalid", name)
+		}
+		if err := server.Validate(); err != nil {
+			return fmt.Errorf("mcp.servers.%s.%s", name, err)
+		}
+	}
+	return nil
+}
+
+func (s MCPServerConfig) Validate() error {
+	command := strings.TrimSpace(s.Command)
+	url := strings.TrimSpace(s.URL)
+	commandSet := command != ""
+	urlSet := url != ""
+	if commandSet == urlSet {
+		return errors.New("exactly one of command or url is required")
+	}
+	if urlSet {
+		if len(s.Args) > 0 {
+			return errors.New("args are only valid with command")
+		}
+		if len(s.Env) > 0 {
+			return errors.New("env is only valid with command")
+		}
+	}
+	return nil
 }

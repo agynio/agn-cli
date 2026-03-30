@@ -132,3 +132,123 @@ summarization:
 	require.Error(t, err)
 	require.ErrorContains(t, err, "summarization.llm.endpoint")
 }
+
+func TestLoadConfigWithMCPCommandServer(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+mcp:
+  servers:
+    weather:
+      command: /bin/echo
+      args:
+        - hello
+      env:
+        SAMPLE_KEY: sample-value
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Contains(t, cfg.MCP.Servers, "weather")
+}
+
+func TestLoadConfigWithMCPURLServer(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+mcp:
+  servers:
+    tools:
+      url: https://mcp.local
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Contains(t, cfg.MCP.Servers, "tools")
+}
+
+func TestLoadConfigWithInvalidMCPServerName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+mcp:
+  servers:
+    BadName:
+      command: /bin/echo
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "mcp.servers.BadName name is invalid")
+}
+
+func TestLoadConfigWithMCPCommandAndURL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+mcp:
+  servers:
+    weather:
+      command: /bin/echo
+      url: https://mcp.local
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "exactly one of command or url is required")
+}
+
+func TestLoadConfigWithMCPURLAndArgs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+mcp:
+  servers:
+    tools:
+      url: https://mcp.local
+      args:
+        - hello
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "args are only valid with command")
+}
+
+func TestLoadConfigWithMCPMissingCommandAndURL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+mcp:
+  servers:
+    weather: {}
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "mcp.servers.weather.exactly one of command or url is required")
+}

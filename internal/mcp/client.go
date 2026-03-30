@@ -88,6 +88,27 @@ func NewProcessClient(ctx context.Context, command string, args ...string) (*Cli
 	return NewClient(stdout, stdin, stdin), nil
 }
 
+func NewProcessClientWithEnv(ctx context.Context, command string, args []string, env []string) (*Client, error) {
+	if strings.TrimSpace(command) == "" {
+		return nil, errors.New("command is required")
+	}
+	cmd := exec.CommandContext(ctx, command, args...)
+	cmd.Env = env
+	cmd.Stderr = os.Stderr
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("open stdin: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("open stdout: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start mcp process: %w", err)
+	}
+	return NewClient(stdout, stdin, stdin), nil
+}
+
 func (c *Client) Close() error {
 	close(c.done)
 	if c.closer != nil {

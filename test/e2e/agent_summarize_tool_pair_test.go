@@ -89,6 +89,11 @@ func newToolPairTestEnv(t *testing.T, mcpCommand string) toolPairTestEnv {
 			Model:    toolPairTurn1Model,
 		},
 		Summarization: summarizationCfg,
+		MCP: config.MCPConfig{
+			Servers: map[string]config.MCPServerConfig{
+				"weather": {Command: mcpCommand},
+			},
+		},
 	}
 	turn1Payload, err := yaml.Marshal(turn1Config)
 	require.NoError(t, err)
@@ -102,12 +107,17 @@ func newToolPairTestEnv(t *testing.T, mcpCommand string) toolPairTestEnv {
 			Model:    toolPairTurn2Model,
 		},
 		Summarization: summarizationCfg,
+		MCP: config.MCPConfig{
+			Servers: map[string]config.MCPServerConfig{
+				"weather": {Command: mcpCommand},
+			},
+		},
 	}
 	turn2Payload, err := yaml.Marshal(turn2Config)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(turn2Path, turn2Payload, 0o600))
 
-	base := append(os.Environ(), "HOME="+home, "AGN_MCP_COMMAND="+mcpCommand)
+	base := append(os.Environ(), "HOME="+home)
 	return toolPairTestEnv{
 		turn1: append(append([]string{}, base...), "AGN_CONFIG_PATH="+turn1Path),
 		turn2: append(append([]string{}, base...), "AGN_CONFIG_PATH="+turn2Path),

@@ -77,7 +77,7 @@ type AgentConfig struct {
 	Store               state.Store
 	LLM                 *llm.Client
 	Summarizer          *summarize.Summarizer
-	MCP                 *mcp.Client
+	MCP                 mcp.ToolProvider
 	SystemPrompt        string
 	MaxSteps            int
 	MaxRestrictAttempts int
@@ -87,7 +87,7 @@ type Agent struct {
 	store               state.Store
 	llm                 *llm.Client
 	summarizer          *summarize.Summarizer
-	mcp                 *mcp.Client
+	mcp                 mcp.ToolProvider
 	systemPrompt        string
 	maxRestrictAttempts int
 	loop                *Loop
