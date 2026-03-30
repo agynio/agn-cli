@@ -23,6 +23,7 @@ func TestLocalStoreSaveLoadRoundTrip(t *testing.T) {
 	store := newLocalStore(t)
 	ctx := context.Background()
 	createdAt := time.Date(2024, 10, 12, 8, 0, 0, 0, time.UTC)
+	toolArgs := `{"location": "Paris"}`
 	thread := Thread{
 		ID: "conv-1",
 		Messages: []MessageRecord{
@@ -34,6 +35,14 @@ func TestLocalStoreSaveLoadRoundTrip(t *testing.T) {
 			},
 			{
 				ID:         "msg-2",
+				CreatedAt:  createdAt.Add(30 * time.Second),
+				TokenCount: 5,
+				Message: message.NewToolCallMessage([]message.ToolCall{
+					{ID: "call-1", Name: "get_weather", Arguments: toolArgs},
+				}),
+			},
+			{
+				ID:         "msg-3",
 				CreatedAt:  createdAt.Add(time.Minute),
 				TokenCount: 3,
 				Message:    message.NewAIMessage("world"),
@@ -47,6 +56,10 @@ func TestLocalStoreSaveLoadRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, thread.ID, loaded.ID)
 	require.Equal(t, thread.Messages, loaded.Messages)
+	toolMessage, ok := loaded.Messages[1].Message.(message.ToolCallMessage)
+	require.True(t, ok)
+	require.Len(t, toolMessage.ToolCalls, 1)
+	require.Equal(t, toolArgs, toolMessage.ToolCalls[0].Arguments)
 	require.False(t, loaded.UpdatedAt.IsZero())
 	require.True(t, loaded.UpdatedAt.Equal(before) || loaded.UpdatedAt.After(before))
 }

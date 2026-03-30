@@ -1,14 +1,13 @@
 package message
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeDecodeMessages(t *testing.T) {
-	toolArgs := json.RawMessage(`{"path":"/tmp"}`)
+	toolArgs := `{"path":"/tmp"}`
 	toolCalls := []ToolCall{{ID: "call-1", Name: "read", Arguments: toolArgs}}
 	output := ToolCallOutput{ToolCallID: "call-1", ToolName: "read", Output: "ok"}
 

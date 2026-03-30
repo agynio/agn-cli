@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,8 +11,8 @@ import (
 
 func TestMessagesToInputMappings(t *testing.T) {
 	toolCalls := []message.ToolCall{
-		{ID: "call-1", Name: "tool-one", Arguments: json.RawMessage(`{"path":"/tmp"}`)},
-		{ID: "call-2", Name: "tool-two", Arguments: json.RawMessage(`{"verbose":true}`)},
+		{ID: "call-1", Name: "tool-one", Arguments: `{"path":"/tmp"}`},
+		{ID: "call-2", Name: "tool-two", Arguments: `{"verbose":true}`},
 	}
 	output := message.ToolCallOutput{ToolCallID: "call-1", ToolName: "tool-one", Output: "ok"}
 
@@ -61,7 +60,7 @@ func requireFunctionCallInput(t *testing.T, item responses.ResponseInputItemUnio
 	require.NotNil(t, item.OfFunctionCall)
 	require.Equal(t, call.ID, item.OfFunctionCall.CallID)
 	require.Equal(t, call.Name, item.OfFunctionCall.Name)
-	require.Equal(t, string(call.Arguments), item.OfFunctionCall.Arguments)
+	require.Equal(t, call.Arguments, item.OfFunctionCall.Arguments)
 }
 
 func requireFunctionCallOutputInput(t *testing.T, item responses.ResponseInputItemUnionParam, output message.ToolCallOutput) {

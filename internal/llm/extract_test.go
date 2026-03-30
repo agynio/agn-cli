@@ -35,10 +35,10 @@ func TestExtractToolCallsFunctionCalls(t *testing.T) {
 	require.Len(t, calls, 2)
 	require.Equal(t, "call-1", calls[0].ID)
 	require.Equal(t, "do", calls[0].Name)
-	require.Equal(t, json.RawMessage(`{"value":1}`), calls[0].Arguments)
+	require.Equal(t, `{"value":1}`, calls[0].Arguments)
 	require.Equal(t, "call-2", calls[1].ID)
 	require.Equal(t, "run", calls[1].Name)
-	require.Equal(t, json.RawMessage(`{"value":2}`), calls[1].Arguments)
+	require.Equal(t, `{"value":2}`, calls[1].Arguments)
 }
 
 func TestExtractToolCallsMixedItems(t *testing.T) {
@@ -51,7 +51,7 @@ func TestExtractToolCallsMixedItems(t *testing.T) {
 
 	calls := ExtractToolCalls(resp)
 	require.Len(t, calls, 1)
-	require.Equal(t, json.RawMessage(`{"value":1}`), calls[0].Arguments)
+	require.Equal(t, `{"value":1}`, calls[0].Arguments)
 }
 
 func mustOutputItem(t *testing.T, payload string) responses.ResponseOutputItemUnion {

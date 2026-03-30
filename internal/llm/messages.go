@@ -41,7 +41,7 @@ func messageToInputItems(msg message.Message) ([]responses.ResponseInputItemUnio
 	case message.ToolCallMessage:
 		items := make([]responses.ResponseInputItemUnionParam, 0, len(typed.ToolCalls))
 		for _, call := range typed.ToolCalls {
-			items = append(items, responses.ResponseInputItemParamOfFunctionCall(string(call.Arguments), call.ID, call.Name))
+			items = append(items, responses.ResponseInputItemParamOfFunctionCall(call.Arguments, call.ID, call.Name))
 		}
 		return items, nil
 	case message.ToolCallOutputMessage:

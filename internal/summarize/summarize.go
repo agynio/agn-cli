@@ -93,6 +93,12 @@ func (s *Summarizer) Summarize(ctx context.Context, messages []state.MessageReco
 	if keepIndex <= 0 {
 		return messages, nil
 	}
+	// Adjust keepIndex to avoid splitting tool_call/tool_output pairs.
+	// If kept would start with tool_output messages, walk keepIndex backward
+	// to include the preceding tool_call.
+	for keepIndex > 0 && messages[keepIndex].Message.Kind() == message.KindToolCallOutput {
+		keepIndex--
+	}
 
 	older := messages[:keepIndex]
 	kept := messages[keepIndex:]

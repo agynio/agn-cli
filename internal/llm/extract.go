@@ -1,8 +1,6 @@
 package llm
 
 import (
-	"encoding/json"
-
 	"github.com/agynio/agn-cli/internal/message"
 	"github.com/openai/openai-go/v3/responses"
 )
@@ -17,7 +15,7 @@ func ExtractToolCalls(resp *responses.Response) []message.ToolCall {
 		calls = append(calls, message.ToolCall{
 			ID:        call.CallID,
 			Name:      call.Name,
-			Arguments: json.RawMessage(call.Arguments),
+			Arguments: call.Arguments,
 		})
 	}
 	return calls

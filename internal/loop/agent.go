@@ -2,6 +2,7 @@ package loop
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -290,7 +291,7 @@ func (a *Agent) callTools(ctx context.Context, state *State) error {
 		if state.EventSink != nil {
 			state.EventSink(Event{Type: EventItemStarted, ThreadID: state.Thread.ID, TurnID: state.TurnID, ItemID: call.ID, ToolName: call.Name})
 		}
-		result, err := a.mcp.CallTool(ctx, mcp.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments})
+		result, err := a.mcp.CallTool(ctx, mcp.ToolCall{ID: call.ID, Name: call.Name, Arguments: json.RawMessage(call.Arguments)})
 		if err != nil {
 			return err
 		}
