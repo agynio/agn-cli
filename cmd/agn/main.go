@@ -19,8 +19,6 @@ import (
 	"github.com/agynio/agn-cli/internal/summarize"
 )
 
-const mcpCommandEnv = "AGN_MCP_COMMAND"
-
 func main() {
 	root := &cobra.Command{
 		Use:          "agn",
@@ -197,20 +195,20 @@ func buildAgent(ctx context.Context, cfg config.Config) (*loop.Agent, state.Stor
 	if err != nil {
 		return nil, nil, func() {}, err
 	}
-	mcpClient, err := newMCPClient(ctx)
+	mcpProvider, err := newMCPProvider(ctx, cfg.MCP)
 	if err != nil {
 		return nil, nil, func() {}, err
 	}
 	cleanup := func() {
-		if mcpClient != nil {
-			_ = mcpClient.Close()
+		if mcpProvider != nil {
+			_ = mcpProvider.Close()
 		}
 	}
 	agent, err := loop.NewAgent(loop.AgentConfig{
 		Store:        store,
 		LLM:          llmClient,
 		Summarizer:   summarizer,
-		MCP:          mcpClient,
+		MCP:          mcpProvider,
 		SystemPrompt: cfg.SystemPrompt,
 	})
 	if err != nil {
@@ -220,18 +218,30 @@ func buildAgent(ctx context.Context, cfg config.Config) (*loop.Agent, state.Stor
 	return agent, store, cleanup, nil
 }
 
-func newMCPClient(ctx context.Context) (*mcp.Client, error) {
-	commandLine := strings.TrimSpace(os.Getenv(mcpCommandEnv))
-	if commandLine == "" {
+func newMCPProvider(ctx context.Context, cfg config.MCPConfig) (mcp.ToolProvider, error) {
+	if len(cfg.Servers) == 0 {
 		return nil, nil
 	}
-	fields := strings.Fields(commandLine)
-	if len(fields) == 0 {
-		return nil, nil
+	providers := make([]mcp.ToolProvider, 0, len(cfg.Servers))
+	for name, serverCfg := range cfg.Servers {
+		var provider mcp.ToolProvider
+		var err error
+		if serverCfg.Command != "" {
+			env := os.Environ()
+			for key, value := range serverCfg.Env {
+				env = append(env, key+"="+value)
+			}
+			provider, err = mcp.NewProcessClientWithEnv(ctx, serverCfg.Command, serverCfg.Args, env)
+		} else {
+			provider, err = mcp.NewHTTPClient(ctx, serverCfg.URL)
+		}
+		if err != nil {
+			for _, existing := range providers {
+				_ = existing.Close()
+			}
+			return nil, fmt.Errorf("start MCP server %q: %w", name, err)
+		}
+		providers = append(providers, provider)
 	}
-	client, err := mcp.NewProcessClient(ctx, fields[0], fields[1:]...)
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
+	return mcp.NewMultiClient(providers)
 }
