@@ -289,33 +289,27 @@ func TestSummarizeToolOutputKeepIndexZero(t *testing.T) {
 	client, requests, closeServer := mockClient(t, "summary")
 	t.Cleanup(closeServer)
 
-	instance, err := New(client, Config{KeepTokens: 10, MaxTokens: 10})
+	instance, err := New(client, Config{KeepTokens: 8, MaxTokens: 10})
 	require.NoError(t, err)
 
 	baseTime := time.Date(2025, 1, 4, 12, 0, 0, 0, time.UTC)
 	records := []state.MessageRecord{
 		{
 			ID:         "msg-1",
-			CreatedAt:  baseTime.Add(-4 * time.Minute),
-			TokenCount: 3,
-			Message:    message.NewHumanMessage("Weather?"),
-		},
-		{
-			ID:         "msg-2",
 			CreatedAt:  baseTime.Add(-3 * time.Minute),
 			TokenCount: 3,
 			Message:    message.NewToolCallMessage([]message.ToolCall{testToolCall()}),
 		},
 		{
-			ID:         "msg-3",
+			ID:         "msg-2",
 			CreatedAt:  baseTime.Add(-2 * time.Minute),
 			TokenCount: 3,
 			Message:    message.NewToolCallOutputMessage(testToolOutput()),
 		},
 		{
-			ID:         "msg-4",
+			ID:         "msg-3",
 			CreatedAt:  baseTime.Add(-1 * time.Minute),
-			TokenCount: 3,
+			TokenCount: 5,
 			Message:    message.NewAIMessage("18C and sunny"),
 		},
 	}
