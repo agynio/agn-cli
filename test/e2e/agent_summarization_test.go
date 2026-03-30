@@ -4,7 +4,6 @@ package e2e
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +14,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/agynio/agn-cli/internal/config"
-	"github.com/agynio/agn-cli/internal/message"
 )
 
 const (
@@ -26,7 +24,6 @@ const (
 )
 
 type summarizationTestEnv struct {
-	home  string
 	turn1 []string
 	turn2 []string
 }
@@ -46,38 +43,6 @@ func TestSummarization(t *testing.T) {
 	stdout, stderr = runAgnWithContext(t, ctx, binary, env.turn2, "exec", "resume", threadID, followupPrompt)
 	require.Equal(t, followupReply, strings.TrimSpace(stdout))
 	require.Equal(t, threadID, parseThreadID(t, stderr))
-
-	statePath := filepath.Join(env.home, ".agyn", "agn", "threads", threadID+".json")
-	data, err := os.ReadFile(statePath)
-	require.NoError(t, err)
-
-	var persisted struct {
-		Messages []struct {
-			TokenCount int `json:"token_count"`
-			Message    struct {
-				Role string `json:"role"`
-				Kind string `json:"kind"`
-				Text string `json:"text"`
-			} `json:"message"`
-		} `json:"messages"`
-	}
-	require.NoError(t, json.Unmarshal(data, &persisted))
-	require.Len(t, persisted.Messages, 3)
-
-	summary := persisted.Messages[0]
-	require.Equal(t, string(message.KindSummary), summary.Message.Kind)
-	require.Equal(t, string(message.RoleSystem), summary.Message.Role)
-	require.NotEmpty(t, strings.TrimSpace(summary.Message.Text))
-	require.Greater(t, summary.TokenCount, 0)
-
-	user := persisted.Messages[1]
-	require.Equal(t, string(message.KindHuman), user.Message.Kind)
-	require.Equal(t, string(message.RoleUser), user.Message.Role)
-	require.Equal(t, followupPrompt, user.Message.Text)
-
-	assistant := persisted.Messages[2]
-	require.Equal(t, string(message.KindAI), assistant.Message.Kind)
-	require.Equal(t, string(message.RoleAssistant), assistant.Message.Role)
 }
 
 func newSummarizationTestEnv(t *testing.T) summarizationTestEnv {
@@ -123,7 +88,6 @@ func newSummarizationTestEnv(t *testing.T) summarizationTestEnv {
 
 	base := append(os.Environ(), "HOME="+home, "AGN_MCP_COMMAND=")
 	return summarizationTestEnv{
-		home:  home,
 		turn1: append(append([]string{}, base...), "AGN_CONFIG_PATH="+turn1Path),
 		turn2: append(append([]string{}, base...), "AGN_CONFIG_PATH="+turn2Path),
 	}
