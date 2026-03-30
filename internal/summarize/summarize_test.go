@@ -372,7 +372,7 @@ func testToolCall() message.ToolCall {
 	return message.ToolCall{
 		ID:        "call-1",
 		Name:      "weather",
-		Arguments: json.RawMessage(`{"city":"Paris"}`),
+		Arguments: `{"city":"Paris"}`,
 	}
 }
 
