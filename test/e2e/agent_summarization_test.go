@@ -86,7 +86,7 @@ func newSummarizationTestEnv(t *testing.T) summarizationTestEnv {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(turn2Path, turn2Payload, 0o600))
 
-	base := append(os.Environ(), "HOME="+home, "AGN_MCP_COMMAND=")
+	base := append(os.Environ(), "HOME="+home)
 	return summarizationTestEnv{
 		turn1: append(append([]string{}, base...), "AGN_CONFIG_PATH="+turn1Path),
 		turn2: append(append([]string{}, base...), "AGN_CONFIG_PATH="+turn2Path),
