@@ -109,7 +109,7 @@ func newTestEnv(t *testing.T, model string, systemPrompt string) testEnv {
 	payload, err := yaml.Marshal(configData)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(configPath, payload, 0o600))
-	env := append(os.Environ(), "HOME="+home, "AGN_CONFIG_PATH="+configPath, "AGN_MCP_COMMAND=")
+	env := append(os.Environ(), "HOME="+home, "AGN_CONFIG_PATH="+configPath)
 	return testEnv{home: home, env: env}
 }
 
