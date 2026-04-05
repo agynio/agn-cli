@@ -22,7 +22,7 @@ type Tool struct {
 }
 
 type ToolResult struct {
-	Content string `json:"content"`
+	Content []ContentItem `json:"content"`
 }
 
 type Client struct {
@@ -140,14 +140,17 @@ func (c *Client) CallTool(ctx context.Context, call ToolCall) (ToolResult, error
 	if err != nil {
 		return ToolResult{}, err
 	}
-	var payload ToolResult
+	var payload struct {
+		Content json.RawMessage `json:"content"`
+	}
 	if err := json.Unmarshal(resp.Result, &payload); err != nil {
 		return ToolResult{}, fmt.Errorf("parse tool result: %w", err)
 	}
-	if strings.TrimSpace(payload.Content) == "" {
-		return ToolResult{}, errors.New("tool result content is empty")
+	content, err := ParseContentItems(payload.Content)
+	if err != nil {
+		return ToolResult{}, err
 	}
-	return payload, nil
+	return ToolResult{Content: content}, nil
 }
 
 type ToolCall struct {

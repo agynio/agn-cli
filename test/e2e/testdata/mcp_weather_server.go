@@ -91,7 +91,7 @@ func weatherTool() tool {
 	return tool{Name: "get_weather", InputSchema: schema}
 }
 
-func handleToolCall(raw json.RawMessage) (map[string]string, error) {
+func handleToolCall(raw json.RawMessage) (map[string]any, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("missing params")
 	}
@@ -102,7 +102,9 @@ func handleToolCall(raw json.RawMessage) (map[string]string, error) {
 	if strings.TrimSpace(params.Name) != "get_weather" {
 		return nil, fmt.Errorf("unknown tool")
 	}
-	return map[string]string{"content": weatherContent}, nil
+	return map[string]any{
+		"content": []map[string]string{{"type": "text", "text": weatherContent}},
+	}, nil
 }
 
 func writeResponse(writer *bufio.Writer, resp response) error {

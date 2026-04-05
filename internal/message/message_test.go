@@ -3,13 +3,14 @@ package message
 import (
 	"testing"
 
+	"github.com/agynio/agn-cli/internal/mcp"
 	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeDecodeMessages(t *testing.T) {
 	toolArgs := `{"path":"/tmp"}`
 	toolCalls := []ToolCall{{ID: "call-1", Name: "read", Arguments: toolArgs}}
-	output := ToolCallOutput{ToolCallID: "call-1", ToolName: "read", Output: "ok"}
+	output := ToolCallOutput{ToolCallID: "call-1", ToolName: "read", Output: []mcp.ContentItem{{Type: mcp.ContentTypeText, Text: "ok"}}}
 
 	cases := []Message{
 		NewSystemMessage("system"),

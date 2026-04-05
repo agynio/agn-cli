@@ -64,10 +64,10 @@ func TestClientSequentialRequests(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "/tmp", args["path"])
 
-	writeResponse(t, respWriter, callReq.ID, ToolResult{Content: "ok"}, nil)
+	writeResponse(t, respWriter, callReq.ID, ToolResult{Content: []ContentItem{{Type: ContentTypeText, Text: "ok"}}}, nil)
 	<-callDone
 	require.NoError(t, callErr)
-	require.Equal(t, ToolResult{Content: "ok"}, result)
+	require.Equal(t, ToolResult{Content: []ContentItem{{Type: ContentTypeText, Text: "ok"}}}, result)
 }
 
 func TestClientListToolsError(t *testing.T) {
@@ -101,7 +101,7 @@ func TestClientCallToolEmptyContent(t *testing.T) {
 	}()
 
 	callReq := readRequest(t, reqReader)
-	writeResponse(t, respWriter, callReq.ID, ToolResult{Content: ""}, nil)
+	writeResponse(t, respWriter, callReq.ID, ToolResult{Content: nil}, nil)
 	<-done
 	require.Error(t, err)
 }

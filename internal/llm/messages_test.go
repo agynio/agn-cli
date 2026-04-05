@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/agynio/agn-cli/internal/mcp"
 	"github.com/agynio/agn-cli/internal/message"
 	"github.com/openai/openai-go/v3/responses"
 )
@@ -14,7 +15,23 @@ func TestMessagesToInputMappings(t *testing.T) {
 		{ID: "call-1", Name: "tool-one", Arguments: `{"path":"/tmp"}`},
 		{ID: "call-2", Name: "tool-two", Arguments: `{"verbose":true}`},
 	}
-	output := message.ToolCallOutput{ToolCallID: "call-1", ToolName: "tool-one", Output: "ok"}
+	resourceText := "report"
+	output := message.ToolCallOutput{
+		ToolCallID: "call-1",
+		ToolName:   "tool-one",
+		Output: []mcp.ContentItem{
+			{Type: mcp.ContentTypeText, Text: "ok"},
+			{Type: mcp.ContentTypeImage, MIMEType: "image/png", Data: "ZmFrZQ=="},
+			{Type: mcp.ContentTypeAudio, MIMEType: "audio/wav", Data: "c291bmQ="},
+			{
+				Type: mcp.ContentTypeResource,
+				Resource: &mcp.ResourceContent{
+					URI:  "file:///report.txt",
+					Text: resourceText,
+				},
+			},
+		},
+	}
 
 	inputs, err := MessagesToInput([]message.Message{
 		message.NewSystemMessage("system"),
@@ -47,6 +64,28 @@ func TestMessagesToInputEmpty(t *testing.T) {
 	require.Empty(t, inputs)
 }
 
+func TestMessagesToInputTextOnlyToolOutput(t *testing.T) {
+	output := message.ToolCallOutput{
+		ToolCallID: "call-1",
+		ToolName:   "tool-one",
+		Output: []mcp.ContentItem{
+			{Type: mcp.ContentTypeText, Text: "first"},
+			{Type: mcp.ContentTypeText, Text: "second"},
+		},
+	}
+
+	inputs, err := MessagesToInput([]message.Message{message.NewToolCallOutputMessage(output)})
+	require.NoError(t, err)
+	require.Len(t, inputs, 1)
+
+	item := inputs[0]
+	require.NotNil(t, item.OfFunctionCallOutput)
+	require.Equal(t, output.ToolCallID, item.OfFunctionCallOutput.CallID)
+	require.True(t, item.OfFunctionCallOutput.Output.OfString.Valid())
+	require.Equal(t, "first\nsecond", item.OfFunctionCallOutput.Output.OfString.Value)
+	require.Empty(t, item.OfFunctionCallOutput.Output.OfResponseFunctionCallOutputItemArray)
+}
+
 func requireMessageInput(t *testing.T, item responses.ResponseInputItemUnionParam, role responses.EasyInputMessageRole, text string) {
 	t.Helper()
 	require.NotNil(t, item.OfMessage)
@@ -67,6 +106,32 @@ func requireFunctionCallOutputInput(t *testing.T, item responses.ResponseInputIt
 	t.Helper()
 	require.NotNil(t, item.OfFunctionCallOutput)
 	require.Equal(t, output.ToolCallID, item.OfFunctionCallOutput.CallID)
-	require.True(t, item.OfFunctionCallOutput.Output.OfString.Valid())
-	require.Equal(t, output.Output, item.OfFunctionCallOutput.Output.OfString.Value)
+	outputItems := item.OfFunctionCallOutput.Output.OfResponseFunctionCallOutputItemArray
+	require.Len(t, outputItems, len(output.Output))
+	requireOutputText(t, outputItems[0], "ok")
+	requireOutputImage(t, outputItems[1], "data:image/png;base64,ZmFrZQ==")
+	requireOutputFile(t, outputItems[2], "c291bmQ=", "audio.wav")
+	requireOutputText(t, outputItems[3], "report")
+}
+
+func requireOutputText(t *testing.T, item responses.ResponseFunctionCallOutputItemUnionParam, text string) {
+	t.Helper()
+	require.NotNil(t, item.OfInputText)
+	require.Equal(t, text, item.OfInputText.Text)
+}
+
+func requireOutputImage(t *testing.T, item responses.ResponseFunctionCallOutputItemUnionParam, url string) {
+	t.Helper()
+	require.NotNil(t, item.OfInputImage)
+	require.True(t, item.OfInputImage.ImageURL.Valid())
+	require.Equal(t, url, item.OfInputImage.ImageURL.Value)
+}
+
+func requireOutputFile(t *testing.T, item responses.ResponseFunctionCallOutputItemUnionParam, data, filename string) {
+	t.Helper()
+	require.NotNil(t, item.OfInputFile)
+	require.True(t, item.OfInputFile.FileData.Valid())
+	require.Equal(t, data, item.OfInputFile.FileData.Value)
+	require.True(t, item.OfInputFile.Filename.Valid())
+	require.Equal(t, filename, item.OfInputFile.Filename.Value)
 }

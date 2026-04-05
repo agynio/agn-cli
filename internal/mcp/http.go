@@ -2,11 +2,10 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -79,22 +78,40 @@ func (h *HTTPClient) CallTool(ctx context.Context, call ToolCall) (ToolResult, e
 	if result == nil {
 		return ToolResult{}, errors.New("tool result is nil")
 	}
-	var textParts []string
+	items := make([]ContentItem, 0, len(result.Content))
 	for _, content := range result.Content {
 		switch typed := content.(type) {
 		case *mcpsdk.TextContent:
-			textParts = append(textParts, typed.Text)
+			items = append(items, ContentItem{Type: ContentTypeText, Text: typed.Text})
+		case *mcpsdk.ImageContent:
+			encoded := base64.StdEncoding.EncodeToString(typed.Data)
+			items = append(items, ContentItem{Type: ContentTypeImage, MIMEType: typed.MIMEType, Data: encoded})
+		case *mcpsdk.AudioContent:
+			encoded := base64.StdEncoding.EncodeToString(typed.Data)
+			items = append(items, ContentItem{Type: ContentTypeAudio, MIMEType: typed.MIMEType, Data: encoded})
+		case *mcpsdk.EmbeddedResource:
+			if typed.Resource == nil {
+				return ToolResult{}, errors.New("embedded resource is missing data")
+			}
+			resource := &ResourceContent{
+				URI:      typed.Resource.URI,
+				MIMEType: typed.Resource.MIMEType,
+				Text:     typed.Resource.Text,
+			}
+			if len(typed.Resource.Blob) > 0 {
+				resource.Blob = base64.StdEncoding.EncodeToString(typed.Resource.Blob)
+			}
+			items = append(items, ContentItem{Type: ContentTypeResource, Resource: resource})
 		case nil:
-			fmt.Fprintln(os.Stderr, "mcp: skipped non-text tool content <nil>")
+			return ToolResult{}, errors.New("tool result content is nil")
 		default:
-			fmt.Fprintf(os.Stderr, "mcp: skipped non-text tool content %T\n", content)
+			return ToolResult{}, fmt.Errorf("unsupported tool content type %T", content)
 		}
 	}
-	content := strings.TrimSpace(strings.Join(textParts, "\n"))
-	if content == "" {
-		return ToolResult{}, errors.New("tool result content is empty")
+	if err := ValidateContentItems(items); err != nil {
+		return ToolResult{}, err
 	}
-	return ToolResult{Content: content}, nil
+	return ToolResult{Content: items}, nil
 }
 
 func (h *HTTPClient) Close() error {
