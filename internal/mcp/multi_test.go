@@ -56,11 +56,11 @@ func TestMultiClientListTools(t *testing.T) {
 func TestMultiClientCallToolRoutesToProvider(t *testing.T) {
 	providerOne := &fakeProvider{
 		tools:       []Tool{{Name: "one"}},
-		callResults: map[string]ToolResult{"one": {Content: "first"}},
+		callResults: map[string]ToolResult{"one": {Content: []ContentItem{{Type: ContentTypeText, Text: "first"}}}},
 	}
 	providerTwo := &fakeProvider{
 		tools:       []Tool{{Name: "two"}},
-		callResults: map[string]ToolResult{"two": {Content: "second"}},
+		callResults: map[string]ToolResult{"two": {Content: []ContentItem{{Type: ContentTypeText, Text: "second"}}}},
 	}
 
 	client, err := NewMultiClient([]ToolProvider{providerOne, providerTwo})
@@ -75,7 +75,7 @@ func TestMultiClientCallToolRoutesToProvider(t *testing.T) {
 		Arguments: json.RawMessage(`{"value":2}`),
 	})
 	require.NoError(t, err)
-	require.Equal(t, ToolResult{Content: "second"}, result)
+	require.Equal(t, ToolResult{Content: []ContentItem{{Type: ContentTypeText, Text: "second"}}}, result)
 	require.Len(t, providerOne.calls, 0)
 	require.Len(t, providerTwo.calls, 1)
 }

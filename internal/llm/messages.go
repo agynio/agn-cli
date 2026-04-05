@@ -1,9 +1,13 @@
 package llm
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
+	"net/url"
+	"path"
 	"strings"
 
 	"github.com/agynio/agn-cli/internal/mcp"
@@ -45,14 +49,154 @@ func messageToInputItems(msg message.Message) ([]responses.ResponseInputItemUnio
 		}
 		return items, nil
 	case message.ToolCallOutputMessage:
+		outputItems, err := functionCallOutputItems(typed.Output.Output)
+		if err != nil {
+			return nil, err
+		}
 		return []responses.ResponseInputItemUnionParam{
-			responses.ResponseInputItemParamOfFunctionCallOutput(typed.Output.ToolCallID, typed.Output.Output),
+			responses.ResponseInputItemParamOfFunctionCallOutput(typed.Output.ToolCallID, outputItems),
 		}, nil
 	case message.ResponseMessage:
 		return nil, errors.New("response messages are not valid LLM input")
 	default:
 		return nil, fmt.Errorf("unsupported message type %T", msg)
 	}
+}
+
+func functionCallOutputItems(content []mcp.ContentItem) (responses.ResponseFunctionCallOutputItemListParam, error) {
+	if len(content) == 0 {
+		return nil, errors.New("tool output content is empty")
+	}
+	items := make(responses.ResponseFunctionCallOutputItemListParam, 0, len(content))
+	for _, item := range content {
+		switch item.Type {
+		case mcp.ContentTypeText:
+			items = append(items, responses.ResponseFunctionCallOutputItemParamOfInputText(item.Text))
+		case mcp.ContentTypeImage:
+			imageURL, err := imageDataURL(item)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, responses.ResponseFunctionCallOutputItemUnionParam{
+				OfInputImage: &responses.ResponseInputImageContentParam{
+					ImageURL: openai.Opt(imageURL),
+				},
+			})
+		case mcp.ContentTypeAudio:
+			fileItem, err := audioFileItem(item)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, fileItem)
+		case mcp.ContentTypeResource:
+			fileItem, err := resourceFileItem(item)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, fileItem)
+		default:
+			return nil, fmt.Errorf("unsupported content type %q", item.Type)
+		}
+	}
+	return items, nil
+}
+
+func imageDataURL(item mcp.ContentItem) (string, error) {
+	mimeType := strings.TrimSpace(item.MIMEType)
+	if mimeType == "" {
+		return "", errors.New("image mime type is required")
+	}
+	data := strings.TrimSpace(item.Data)
+	if data == "" {
+		return "", errors.New("image data is required")
+	}
+	return fmt.Sprintf("data:%s;base64,%s", mimeType, data), nil
+}
+
+func audioFileItem(item mcp.ContentItem) (responses.ResponseFunctionCallOutputItemUnionParam, error) {
+	mimeType := strings.TrimSpace(item.MIMEType)
+	if mimeType == "" {
+		return responses.ResponseFunctionCallOutputItemUnionParam{}, errors.New("audio mime type is required")
+	}
+	data := strings.TrimSpace(item.Data)
+	if data == "" {
+		return responses.ResponseFunctionCallOutputItemUnionParam{}, errors.New("audio data is required")
+	}
+	filename, err := filenameFromMIME(mimeType, "audio")
+	if err != nil {
+		return responses.ResponseFunctionCallOutputItemUnionParam{}, err
+	}
+	return responses.ResponseFunctionCallOutputItemUnionParam{
+		OfInputFile: &responses.ResponseInputFileContentParam{
+			FileData: openai.Opt(data),
+			Filename: openai.Opt(filename),
+		},
+	}, nil
+}
+
+func resourceFileItem(item mcp.ContentItem) (responses.ResponseFunctionCallOutputItemUnionParam, error) {
+	resource := item.Resource
+	if resource == nil {
+		return responses.ResponseFunctionCallOutputItemUnionParam{}, errors.New("resource content is required")
+	}
+	filename, err := filenameFromURI(resource.URI)
+	if err != nil {
+		return responses.ResponseFunctionCallOutputItemUnionParam{}, err
+	}
+	data := strings.TrimSpace(resource.Blob)
+	if data == "" {
+		text := strings.TrimSpace(resource.Text)
+		if text == "" {
+			return responses.ResponseFunctionCallOutputItemUnionParam{}, errors.New("resource content is empty")
+		}
+		data = base64.StdEncoding.EncodeToString([]byte(text))
+	}
+	return responses.ResponseFunctionCallOutputItemUnionParam{
+		OfInputFile: &responses.ResponseInputFileContentParam{
+			FileData: openai.Opt(data),
+			Filename: openai.Opt(filename),
+		},
+	}, nil
+}
+
+func filenameFromURI(rawURI string) (string, error) {
+	trimmed := strings.TrimSpace(rawURI)
+	if trimmed == "" {
+		return "", errors.New("resource uri is required")
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("parse resource uri: %w", err)
+	}
+	base := path.Base(parsed.Path)
+	if base == "." || base == "/" || base == "" {
+		base = path.Base(parsed.Opaque)
+	}
+	if base == "." || base == "/" || base == "" {
+		return "", errors.New("resource filename is required")
+	}
+	return base, nil
+}
+
+func filenameFromMIME(mimeType, base string) (string, error) {
+	trimmed := strings.TrimSpace(mimeType)
+	if trimmed == "" {
+		return "", errors.New("mime type is required")
+	}
+	extensions, err := mime.ExtensionsByType(trimmed)
+	if err == nil && len(extensions) > 0 {
+		return base + extensions[0], nil
+	}
+	if ext, ok := fallbackExtensions[trimmed]; ok {
+		return base + ext, nil
+	}
+	return "", fmt.Errorf("unsupported mime type %q", mimeType)
+}
+
+var fallbackExtensions = map[string]string{
+	"audio/wav":   ".wav",
+	"audio/wave":  ".wav",
+	"audio/x-wav": ".wav",
 }
 
 func ToolDefinitionsFromMCP(tools []mcp.Tool) ([]responses.ToolUnionParam, error) {

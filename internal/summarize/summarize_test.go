@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/agynio/agn-cli/internal/llm"
+	"github.com/agynio/agn-cli/internal/mcp"
 	"github.com/agynio/agn-cli/internal/message"
 	"github.com/agynio/agn-cli/internal/state"
 )
@@ -215,7 +216,7 @@ func TestSummarizeToolOutputBoundaryMultipleOutputs(t *testing.T) {
 			Message: message.NewToolCallOutputMessage(message.ToolCallOutput{
 				ToolCallID: "call-1",
 				ToolName:   "weather",
-				Output:     "Forecast updated",
+				Output:     []mcp.ContentItem{{Type: mcp.ContentTypeText, Text: "Forecast updated"}},
 			}),
 		},
 		{
@@ -380,6 +381,6 @@ func testToolOutput() message.ToolCallOutput {
 	return message.ToolCallOutput{
 		ToolCallID: "call-1",
 		ToolName:   "weather",
-		Output:     "18C and sunny",
+		Output:     []mcp.ContentItem{{Type: mcp.ContentTypeText, Text: "18C and sunny"}},
 	}
 }

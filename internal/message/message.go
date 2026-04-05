@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/agynio/agn-cli/internal/mcp"
 )
 
 type Role string
@@ -40,9 +42,9 @@ type ToolCall struct {
 }
 
 type ToolCallOutput struct {
-	ToolCallID string `json:"tool_call_id"`
-	ToolName   string `json:"tool_name"`
-	Output     string `json:"output"`
+	ToolCallID string            `json:"tool_call_id"`
+	ToolName   string            `json:"tool_name"`
+	Output     []mcp.ContentItem `json:"output"`
 }
 
 type SystemMessage struct {
@@ -218,8 +220,45 @@ func TextForSummary(msg Message) (string, bool) {
 		}
 		return string(payload), true
 	case ToolCallOutputMessage:
-		return strings.TrimSpace(typed.Output.Output), typed.Output.Output != ""
+		return toolOutputSummary(typed.Output)
 	default:
 		return "", false
 	}
+}
+
+func toolOutputSummary(output ToolCallOutput) (string, bool) {
+	if len(output.Output) == 0 {
+		return "", false
+	}
+	parts := make([]string, 0, len(output.Output))
+	for _, item := range output.Output {
+		switch item.Type {
+		case mcp.ContentTypeText:
+			text := strings.TrimSpace(item.Text)
+			if text != "" {
+				parts = append(parts, text)
+			}
+		case mcp.ContentTypeResource:
+			if item.Resource == nil {
+				continue
+			}
+			text := strings.TrimSpace(item.Resource.Text)
+			if text != "" {
+				parts = append(parts, text)
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("[resource:%s]", item.Resource.URI))
+		case mcp.ContentTypeImage:
+			parts = append(parts, fmt.Sprintf("[image:%s]", item.MIMEType))
+		case mcp.ContentTypeAudio:
+			parts = append(parts, fmt.Sprintf("[audio:%s]", item.MIMEType))
+		default:
+			parts = append(parts, fmt.Sprintf("[content:%s]", item.Type))
+		}
+	}
+	summary := strings.TrimSpace(strings.Join(parts, "\n"))
+	if summary == "" {
+		return "", false
+	}
+	return summary, true
 }
