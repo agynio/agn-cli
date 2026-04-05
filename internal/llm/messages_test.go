@@ -65,6 +65,28 @@ func TestMessagesToInputEmpty(t *testing.T) {
 	require.Empty(t, inputs)
 }
 
+func TestMessagesToInputTextOnlyToolOutput(t *testing.T) {
+	output := message.ToolCallOutput{
+		ToolCallID: "call-1",
+		ToolName:   "tool-one",
+		Output: []mcp.ContentItem{
+			{Type: mcp.ContentTypeText, Text: "first"},
+			{Type: mcp.ContentTypeText, Text: "second"},
+		},
+	}
+
+	inputs, err := MessagesToInput([]message.Message{message.NewToolCallOutputMessage(output)})
+	require.NoError(t, err)
+	require.Len(t, inputs, 1)
+
+	item := inputs[0]
+	require.NotNil(t, item.OfFunctionCallOutput)
+	require.Equal(t, output.ToolCallID, item.OfFunctionCallOutput.CallID)
+	require.True(t, item.OfFunctionCallOutput.Output.OfString.Valid())
+	require.Equal(t, "first\nsecond", item.OfFunctionCallOutput.Output.OfString.Value)
+	require.Empty(t, item.OfFunctionCallOutput.Output.OfResponseFunctionCallOutputItemArray)
+}
+
 func requireMessageInput(t *testing.T, item responses.ResponseInputItemUnionParam, role responses.EasyInputMessageRole, text string) {
 	t.Helper()
 	require.NotNil(t, item.OfMessage)

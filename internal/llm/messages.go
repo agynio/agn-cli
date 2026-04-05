@@ -49,9 +49,14 @@ func messageToInputItems(msg message.Message) ([]responses.ResponseInputItemUnio
 		}
 		return items, nil
 	case message.ToolCallOutputMessage:
-		outputItems, err := functionCallOutputItems(typed.Output.Output)
+		textOutput, outputItems, textOnly, err := functionCallOutputPayload(typed.Output.Output)
 		if err != nil {
 			return nil, err
+		}
+		if textOnly {
+			return []responses.ResponseInputItemUnionParam{
+				responses.ResponseInputItemParamOfFunctionCallOutput(typed.Output.ToolCallID, textOutput),
+			}, nil
 		}
 		return []responses.ResponseInputItemUnionParam{
 			responses.ResponseInputItemParamOfFunctionCallOutput(typed.Output.ToolCallID, outputItems),
@@ -63,9 +68,28 @@ func messageToInputItems(msg message.Message) ([]responses.ResponseInputItemUnio
 	}
 }
 
-func functionCallOutputItems(content []mcp.ContentItem) (responses.ResponseFunctionCallOutputItemListParam, error) {
+func functionCallOutputPayload(content []mcp.ContentItem) (string, responses.ResponseFunctionCallOutputItemListParam, bool, error) {
 	if len(content) == 0 {
-		return nil, errors.New("tool output content is empty")
+		return "", nil, false, errors.New("tool output content is empty")
+	}
+	textOnly := true
+	textParts := make([]string, 0, len(content))
+	textPresent := false
+	for _, item := range content {
+		if item.Type != mcp.ContentTypeText {
+			textOnly = false
+			continue
+		}
+		textParts = append(textParts, item.Text)
+		if strings.TrimSpace(item.Text) != "" {
+			textPresent = true
+		}
+	}
+	if textOnly {
+		if !textPresent {
+			return "", nil, false, errors.New("tool output content is empty")
+		}
+		return strings.Join(textParts, "\n"), nil, true, nil
 	}
 	items := make(responses.ResponseFunctionCallOutputItemListParam, 0, len(content))
 	for _, item := range content {
@@ -75,7 +99,7 @@ func functionCallOutputItems(content []mcp.ContentItem) (responses.ResponseFunct
 		case mcp.ContentTypeImage:
 			imageURL, err := imageDataURL(item)
 			if err != nil {
-				return nil, err
+				return "", nil, false, err
 			}
 			items = append(items, responses.ResponseFunctionCallOutputItemUnionParam{
 				OfInputImage: &responses.ResponseInputImageContentParam{
@@ -85,20 +109,20 @@ func functionCallOutputItems(content []mcp.ContentItem) (responses.ResponseFunct
 		case mcp.ContentTypeAudio:
 			fileItem, err := audioFileItem(item)
 			if err != nil {
-				return nil, err
+				return "", nil, false, err
 			}
 			items = append(items, fileItem)
 		case mcp.ContentTypeResource:
 			fileItem, err := resourceFileItem(item)
 			if err != nil {
-				return nil, err
+				return "", nil, false, err
 			}
 			items = append(items, fileItem)
 		default:
-			return nil, fmt.Errorf("unsupported content type %q", item.Type)
+			return "", nil, false, fmt.Errorf("unsupported content type %q", item.Type)
 		}
 	}
-	return items, nil
+	return "", items, false, nil
 }
 
 func imageDataURL(item mcp.ContentItem) (string, error) {
