@@ -240,7 +240,7 @@ func toolOutputSummary(output ToolCallOutput) (string, bool) {
 			}
 		case mcp.ContentTypeResource:
 			if item.Resource == nil {
-				continue
+				panic("resource content is required")
 			}
 			text := strings.TrimSpace(item.Resource.Text)
 			if text != "" {

@@ -1,11 +1,9 @@
 package llm
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"mime"
 	"net/url"
 	"path"
 	"strings"
@@ -49,17 +47,16 @@ func messageToInputItems(msg message.Message) ([]responses.ResponseInputItemUnio
 		}
 		return items, nil
 	case message.ToolCallOutputMessage:
-		textOutput, outputItems, textOnly, err := functionCallOutputPayload(typed.Output.Output)
+		outputPayload, err := functionCallOutputPayload(typed.Output.Output)
 		if err != nil {
 			return nil, err
 		}
-		if textOnly {
-			return []responses.ResponseInputItemUnionParam{
-				responses.ResponseInputItemParamOfFunctionCallOutput(typed.Output.ToolCallID, textOutput),
-			}, nil
+		functionCallOutput := responses.ResponseInputItemFunctionCallOutputParam{
+			CallID: typed.Output.ToolCallID,
+			Output: outputPayload,
 		}
 		return []responses.ResponseInputItemUnionParam{
-			responses.ResponseInputItemParamOfFunctionCallOutput(typed.Output.ToolCallID, outputItems),
+			{OfFunctionCallOutput: &functionCallOutput},
 		}, nil
 	case message.ResponseMessage:
 		return nil, errors.New("response messages are not valid LLM input")
@@ -68,83 +65,72 @@ func messageToInputItems(msg message.Message) ([]responses.ResponseInputItemUnio
 	}
 }
 
-func functionCallOutputPayload(content []mcp.ContentItem) (string, responses.ResponseFunctionCallOutputItemListParam, bool, error) {
+func functionCallOutputPayload(content []mcp.ContentItem) (responses.ResponseInputItemFunctionCallOutputOutputUnionParam, error) {
 	if len(content) == 0 {
-		return "", nil, false, errors.New("tool output content is empty")
+		panic("tool output content is empty")
 	}
+
+	output := responses.ResponseInputItemFunctionCallOutputOutputUnionParam{}
 	textOnly := true
 	textParts := make([]string, 0, len(content))
-	textPresent := false
 	for _, item := range content {
 		if item.Type != mcp.ContentTypeText {
 			textOnly = false
-			continue
+			break
 		}
 		textParts = append(textParts, item.Text)
-		if strings.TrimSpace(item.Text) != "" {
-			textPresent = true
-		}
 	}
 	if textOnly {
-		if !textPresent {
-			return "", nil, false, errors.New("tool output content is empty")
-		}
-		return strings.Join(textParts, "\n"), nil, true, nil
+		output.OfString = openai.Opt(strings.Join(textParts, "\n"))
+		return output, nil
 	}
+
 	items := make(responses.ResponseFunctionCallOutputItemListParam, 0, len(content))
 	for _, item := range content {
 		switch item.Type {
 		case mcp.ContentTypeText:
 			items = append(items, responses.ResponseFunctionCallOutputItemParamOfInputText(item.Text))
 		case mcp.ContentTypeImage:
-			imageURL, err := imageDataURL(item)
-			if err != nil {
-				return "", nil, false, err
-			}
 			items = append(items, responses.ResponseFunctionCallOutputItemUnionParam{
 				OfInputImage: &responses.ResponseInputImageContentParam{
-					ImageURL: openai.Opt(imageURL),
+					ImageURL: openai.Opt(imageDataURL(item)),
 				},
 			})
 		case mcp.ContentTypeAudio:
 			fileItem, err := audioFileItem(item)
 			if err != nil {
-				return "", nil, false, err
+				return output, err
 			}
 			items = append(items, fileItem)
 		case mcp.ContentTypeResource:
-			fileItem, err := resourceFileItem(item)
+			resourceItem, err := resourceOutputItem(item)
 			if err != nil {
-				return "", nil, false, err
+				return output, err
 			}
-			items = append(items, fileItem)
+			items = append(items, resourceItem)
 		default:
-			return "", nil, false, fmt.Errorf("unsupported content type %q", item.Type)
+			return output, fmt.Errorf("unsupported content type %q", item.Type)
 		}
 	}
-	return "", items, false, nil
+
+	output.OfResponseFunctionCallOutputItemArray = items
+	return output, nil
 }
 
-func imageDataURL(item mcp.ContentItem) (string, error) {
+func imageDataURL(item mcp.ContentItem) string {
 	mimeType := strings.TrimSpace(item.MIMEType)
-	if mimeType == "" {
-		return "", errors.New("image mime type is required")
-	}
 	data := strings.TrimSpace(item.Data)
-	if data == "" {
-		return "", errors.New("image data is required")
+	if mimeType == "" || data == "" {
+		panic("image content is missing required fields")
 	}
-	return fmt.Sprintf("data:%s;base64,%s", mimeType, data), nil
+	return fmt.Sprintf("data:%s;base64,%s", mimeType, data)
 }
 
 func audioFileItem(item mcp.ContentItem) (responses.ResponseFunctionCallOutputItemUnionParam, error) {
 	mimeType := strings.TrimSpace(item.MIMEType)
-	if mimeType == "" {
-		return responses.ResponseFunctionCallOutputItemUnionParam{}, errors.New("audio mime type is required")
-	}
 	data := strings.TrimSpace(item.Data)
-	if data == "" {
-		return responses.ResponseFunctionCallOutputItemUnionParam{}, errors.New("audio data is required")
+	if mimeType == "" || data == "" {
+		panic("audio content is missing required fields")
 	}
 	filename, err := filenameFromMIME(mimeType, "audio")
 	if err != nil {
@@ -158,26 +144,29 @@ func audioFileItem(item mcp.ContentItem) (responses.ResponseFunctionCallOutputIt
 	}, nil
 }
 
-func resourceFileItem(item mcp.ContentItem) (responses.ResponseFunctionCallOutputItemUnionParam, error) {
+func resourceOutputItem(item mcp.ContentItem) (responses.ResponseFunctionCallOutputItemUnionParam, error) {
 	resource := item.Resource
 	if resource == nil {
-		return responses.ResponseFunctionCallOutputItemUnionParam{}, errors.New("resource content is required")
+		panic("resource content is required")
+	}
+	text := strings.TrimSpace(resource.Text)
+	blob := strings.TrimSpace(resource.Blob)
+	if text != "" {
+		if blob != "" {
+			panic("resource content has both text and blob")
+		}
+		return responses.ResponseFunctionCallOutputItemParamOfInputText(text), nil
+	}
+	if blob == "" {
+		panic("resource content is missing required fields")
 	}
 	filename, err := filenameFromURI(resource.URI)
 	if err != nil {
 		return responses.ResponseFunctionCallOutputItemUnionParam{}, err
 	}
-	data := strings.TrimSpace(resource.Blob)
-	if data == "" {
-		text := strings.TrimSpace(resource.Text)
-		if text == "" {
-			return responses.ResponseFunctionCallOutputItemUnionParam{}, errors.New("resource content is empty")
-		}
-		data = base64.StdEncoding.EncodeToString([]byte(text))
-	}
 	return responses.ResponseFunctionCallOutputItemUnionParam{
 		OfInputFile: &responses.ResponseInputFileContentParam{
-			FileData: openai.Opt(data),
+			FileData: openai.Opt(blob),
 			Filename: openai.Opt(filename),
 		},
 	}, nil
@@ -205,19 +194,21 @@ func filenameFromURI(rawURI string) (string, error) {
 func filenameFromMIME(mimeType, base string) (string, error) {
 	trimmed := strings.TrimSpace(mimeType)
 	if trimmed == "" {
-		return "", errors.New("mime type is required")
+		panic("mime type is required")
 	}
-	extensions, err := mime.ExtensionsByType(trimmed)
-	if err == nil && len(extensions) > 0 {
-		return base + extensions[0], nil
-	}
-	if ext, ok := fallbackExtensions[trimmed]; ok {
+	if ext, ok := mimeExtensions[trimmed]; ok {
 		return base + ext, nil
 	}
 	return "", fmt.Errorf("unsupported mime type %q", mimeType)
 }
 
-var fallbackExtensions = map[string]string{
+var mimeExtensions = map[string]string{
+	"audio/aac":   ".aac",
+	"audio/flac":  ".flac",
+	"audio/mp3":   ".mp3",
+	"audio/mpeg":  ".mp3",
+	"audio/mp4":   ".m4a",
+	"audio/ogg":   ".ogg",
 	"audio/wav":   ".wav",
 	"audio/wave":  ".wav",
 	"audio/x-wav": ".wav",

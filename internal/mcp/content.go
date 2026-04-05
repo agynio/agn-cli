@@ -40,23 +40,29 @@ func ParseContentItems(raw json.RawMessage) ([]ContentItem, error) {
 		return nil, errors.New("tool result content is empty")
 	}
 
-	var items []ContentItem
-	if err := json.Unmarshal(raw, &items); err == nil {
+	switch trimmed[0] {
+	case '[':
+		var items []ContentItem
+		if err := json.Unmarshal(raw, &items); err != nil {
+			return nil, fmt.Errorf("parse tool content: %w", err)
+		}
 		if err := ValidateContentItems(items); err != nil {
 			return nil, err
 		}
 		return items, nil
+	case '{':
+		var single ContentItem
+		if err := json.Unmarshal(raw, &single); err != nil {
+			return nil, fmt.Errorf("parse tool content: %w", err)
+		}
+		items := []ContentItem{single}
+		if err := ValidateContentItems(items); err != nil {
+			return nil, err
+		}
+		return items, nil
+	default:
+		return nil, errors.New("parse tool content: invalid JSON")
 	}
-
-	var single ContentItem
-	if err := json.Unmarshal(raw, &single); err != nil {
-		return nil, fmt.Errorf("parse tool content: %w", err)
-	}
-	items = []ContentItem{single}
-	if err := ValidateContentItems(items); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 func ValidateContentItems(items []ContentItem) error {

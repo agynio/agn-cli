@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"encoding/base64"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -112,8 +111,7 @@ func requireFunctionCallOutputInput(t *testing.T, item responses.ResponseInputIt
 	requireOutputText(t, outputItems[0], "ok")
 	requireOutputImage(t, outputItems[1], "data:image/png;base64,ZmFrZQ==")
 	requireOutputFile(t, outputItems[2], "c291bmQ=", "audio.wav")
-	encoded := base64.StdEncoding.EncodeToString([]byte("report"))
-	requireOutputFile(t, outputItems[3], encoded, "report.txt")
+	requireOutputText(t, outputItems[3], "report")
 }
 
 func requireOutputText(t *testing.T, item responses.ResponseFunctionCallOutputItemUnionParam, text string) {
