@@ -86,6 +86,20 @@ func TestMessagesToInputTextOnlyToolOutput(t *testing.T) {
 	require.Empty(t, item.OfFunctionCallOutput.Output.OfResponseFunctionCallOutputItemArray)
 }
 
+func TestToolDefinitionsFromMCPStrictFalse(t *testing.T) {
+	tools, err := ToolDefinitionsFromMCP([]mcp.Tool{
+		{
+			Name: "optional-arg-tool",
+			InputSchema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"verbose":{"type":"boolean"}},"required":["path"]}`),
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	require.NotNil(t, tools[0].OfFunction)
+	require.True(t, tools[0].OfFunction.Strict.Valid())
+	require.False(t, tools[0].OfFunction.Strict.Value)
+}
+
 func requireMessageInput(t *testing.T, item responses.ResponseInputItemUnionParam, role responses.EasyInputMessageRole, text string) {
 	t.Helper()
 	require.NotNil(t, item.OfMessage)
