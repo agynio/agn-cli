@@ -229,7 +229,7 @@ func ToolDefinitionsFromMCP(tools []mcp.Tool) ([]responses.ToolUnionParam, error
 		function := responses.FunctionToolParam{
 			Name:       tool.Name,
 			Parameters: parameters,
-			Strict:     openai.Bool(true),
+			Strict:     openai.Bool(false),
 		}
 		if strings.TrimSpace(tool.Description) != "" {
 			function.Description = openai.String(tool.Description)
