@@ -214,6 +214,139 @@ var mimeExtensions = map[string]string{
 	"audio/x-wav": ".wav",
 }
 
+func sanitizeMCPToolSchema(schema map[string]any) {
+	if schema == nil {
+		return
+	}
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		for key, value := range properties {
+			switch typed := value.(type) {
+			case map[string]any:
+				sanitizeMCPToolSchema(typed)
+			case bool:
+				properties[key] = map[string]any{"type": "string"}
+			}
+		}
+	}
+	if items, ok := schema["items"].(map[string]any); ok {
+		sanitizeMCPToolSchema(items)
+	} else if _, ok := schema["items"].(bool); ok {
+		schema["items"] = map[string]any{"type": "string"}
+	}
+
+	for _, combiner := range []string{"anyOf", "oneOf", "allOf", "prefixItems"} {
+		if entries, ok := schema[combiner].([]any); ok {
+			for i, entry := range entries {
+				switch typed := entry.(type) {
+				case map[string]any:
+					sanitizeMCPToolSchema(typed)
+				case bool:
+					entries[i] = map[string]any{"type": "string"}
+				}
+			}
+		}
+	}
+
+	resolvedType := resolveMCPToolSchemaType(schema)
+	schema["type"] = resolvedType
+
+	switch resolvedType {
+	case "object":
+		properties, ok := schema["properties"]
+		if !ok || properties == nil {
+			schema["properties"] = map[string]any{}
+		}
+		if additional, ok := schema["additionalProperties"]; ok {
+			if additionalSchema, ok := additional.(map[string]any); ok {
+				sanitizeMCPToolSchema(additionalSchema)
+			}
+		}
+	case "array":
+		items, ok := schema["items"]
+		if !ok || items == nil {
+			schema["items"] = map[string]any{"type": "string"}
+		}
+	}
+}
+
+func resolveMCPToolSchemaType(schema map[string]any) string {
+	if rawType, ok := schema["type"]; ok && rawType != nil {
+		switch typed := rawType.(type) {
+		case string:
+			return typed
+		case []any:
+			for _, entry := range typed {
+				if entryType, ok := entry.(string); ok && isRecognizedSchemaType(entryType) {
+					return entryType
+				}
+			}
+		}
+	}
+	if combinerType := resolveCombinerSchemaType(schema); combinerType != "" {
+		return combinerType
+	}
+	if schemaHasValue(schema, "properties") ||
+		schemaHasValue(schema, "required") ||
+		schemaHasValue(schema, "additionalProperties") {
+		return "object"
+	}
+	if schemaHasValue(schema, "items") ||
+		schemaHasValue(schema, "prefixItems") {
+		return "array"
+	}
+	if schemaHasValue(schema, "enum") ||
+		schemaHasValue(schema, "const") ||
+		schemaHasValue(schema, "format") {
+		return "string"
+	}
+	if schemaHasValue(schema, "minimum") ||
+		schemaHasValue(schema, "maximum") ||
+		schemaHasValue(schema, "exclusiveMinimum") ||
+		schemaHasValue(schema, "exclusiveMaximum") ||
+		schemaHasValue(schema, "multipleOf") {
+		return "number"
+	}
+	return "object"
+}
+
+func resolveCombinerSchemaType(schema map[string]any) string {
+	if combinerType := combinerSchemaType(schema, "anyOf"); combinerType != "" {
+		return combinerType
+	}
+	if combinerType := combinerSchemaType(schema, "oneOf"); combinerType != "" {
+		return combinerType
+	}
+	return ""
+}
+
+func combinerSchemaType(schema map[string]any, key string) string {
+	entries, ok := schema[key].([]any)
+	if !ok || len(entries) == 0 {
+		return ""
+	}
+	if entrySchema, ok := entries[0].(map[string]any); ok {
+		entryType := resolveMCPToolSchemaType(entrySchema)
+		if entryType != "" {
+			return entryType
+		}
+	}
+	return "object"
+}
+
+func schemaHasValue(schema map[string]any, key string) bool {
+	value, ok := schema[key]
+	return ok && value != nil
+}
+
+func isRecognizedSchemaType(value string) bool {
+	switch value {
+	case "object", "array", "string", "number", "integer", "boolean":
+		return true
+	default:
+		return false
+	}
+}
+
 func ToolDefinitionsFromMCP(tools []mcp.Tool) ([]responses.ToolUnionParam, error) {
 	result := make([]responses.ToolUnionParam, 0, len(tools))
 	for _, tool := range tools {
@@ -226,6 +359,7 @@ func ToolDefinitionsFromMCP(tools []mcp.Tool) ([]responses.ToolUnionParam, error
 				return nil, fmt.Errorf("parse tool schema for %s: %w", tool.Name, err)
 			}
 		}
+		sanitizeMCPToolSchema(parameters)
 		function := responses.FunctionToolParam{
 			Name:       tool.Name,
 			Parameters: parameters,

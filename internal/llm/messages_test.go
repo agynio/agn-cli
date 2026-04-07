@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -89,7 +90,7 @@ func TestMessagesToInputTextOnlyToolOutput(t *testing.T) {
 func TestToolDefinitionsFromMCPStrictFalse(t *testing.T) {
 	tools, err := ToolDefinitionsFromMCP([]mcp.Tool{
 		{
-			Name: "optional-arg-tool",
+			Name:        "optional-arg-tool",
 			InputSchema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"verbose":{"type":"boolean"}},"required":["path"]}`),
 		},
 	})
@@ -98,6 +99,95 @@ func TestToolDefinitionsFromMCPStrictFalse(t *testing.T) {
 	require.NotNil(t, tools[0].OfFunction)
 	require.True(t, tools[0].OfFunction.Strict.Valid())
 	require.False(t, tools[0].OfFunction.Strict.Value)
+}
+
+func TestSanitizeMCPToolSchema(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "object_without_properties",
+			input:    `{"type":"object"}`,
+			expected: `{"type":"object","properties":{}}`,
+		},
+		{
+			name:     "empty_schema",
+			input:    `{}`,
+			expected: `{"type":"object","properties":{}}`,
+		},
+		{
+			name:     "object_with_properties",
+			input:    `{"type":"object","properties":{"q":{"type":"string"}}}`,
+			expected: `{"type":"object","properties":{"q":{"type":"string"}}}`,
+		},
+		{
+			name:     "array_without_items",
+			input:    `{"type":"array"}`,
+			expected: `{"type":"array","items":{"type":"string"}}`,
+		},
+		{
+			name:     "array_with_object_items",
+			input:    `{"type":"array","items":{"type":"object"}}`,
+			expected: `{"type":"array","items":{"type":"object","properties":{}}}`,
+		},
+		{
+			name:     "nested_object_property",
+			input:    `{"type":"object","properties":{"f":{"type":"object"}}}`,
+			expected: `{"type":"object","properties":{"f":{"type":"object","properties":{}}}}`,
+		},
+		{
+			name:     "infer_object_type",
+			input:    `{"properties":{"x":{"type":"string"}}}`,
+			expected: `{"type":"object","properties":{"x":{"type":"string"}}}`,
+		},
+		{
+			name:     "first_type_from_array",
+			input:    `{"type":["string","null"]}`,
+			expected: `{"type":"string"}`,
+		},
+		{
+			name:     "nested_array_items",
+			input:    `{"type":"object","properties":{"tags":{"type":"array"}}}`,
+			expected: `{"type":"object","properties":{"tags":{"type":"array","items":{"type":"string"}}}}`,
+		},
+		{
+			name:     "boolean_property_schema",
+			input:    `{"type":"object","properties":{"m":true}}`,
+			expected: `{"type":"object","properties":{"m":{"type":"string"}}}`,
+		},
+		{
+			name:     "anyof_object_schema",
+			input:    `{"type":"object","properties":{"opts":{"anyOf":[{"type":"object"},{"type":"string"}]}}}`,
+			expected: `{"type":"object","properties":{"opts":{"type":"object","properties":{},"anyOf":[{"type":"object","properties":{}},{"type":"string"}]}}}`,
+		},
+		{
+			name:     "additional_properties_schema",
+			input:    `{"type":"object","additionalProperties":{"type":"object"}}`,
+			expected: `{"type":"object","properties":{},"additionalProperties":{"type":"object","properties":{}}}`,
+		},
+		{
+			name:     "oneof_string_schema",
+			input:    `{"oneOf":[{"type":"string"},{"type":"object"}]}`,
+			expected: `{"type":"string","oneOf":[{"type":"string"},{"type":"object","properties":{}}]}`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema := schemaFromJSON(t, test.input)
+			sanitizeMCPToolSchema(schema)
+			require.Equal(t, schemaFromJSON(t, test.expected), schema)
+		})
+	}
+}
+
+func schemaFromJSON(t *testing.T, raw string) map[string]any {
+	t.Helper()
+	var schema map[string]any
+	require.NoError(t, json.Unmarshal([]byte(raw), &schema))
+	return schema
 }
 
 func requireMessageInput(t *testing.T, item responses.ResponseInputItemUnionParam, role responses.EasyInputMessageRole, text string) {
