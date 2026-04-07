@@ -115,7 +115,7 @@ func TestSanitizeMCPToolSchema(t *testing.T) {
 		{
 			name:     "empty_schema",
 			input:    `{}`,
-			expected: `{"type":"string"}`,
+			expected: `{"type":"object","properties":{}}`,
 		},
 		{
 			name:     "object_with_properties",
@@ -160,7 +160,17 @@ func TestSanitizeMCPToolSchema(t *testing.T) {
 		{
 			name:     "anyof_object_schema",
 			input:    `{"type":"object","properties":{"opts":{"anyOf":[{"type":"object"},{"type":"string"}]}}}`,
-			expected: `{"type":"object","properties":{"opts":{"type":"string","anyOf":[{"type":"object","properties":{}},{"type":"string"}]}}}`,
+			expected: `{"type":"object","properties":{"opts":{"type":"object","properties":{},"anyOf":[{"type":"object","properties":{}},{"type":"string"}]}}}`,
+		},
+		{
+			name:     "additional_properties_schema",
+			input:    `{"type":"object","additionalProperties":{"type":"object"}}`,
+			expected: `{"type":"object","properties":{},"additionalProperties":{"type":"object","properties":{}}}`,
+		},
+		{
+			name:     "oneof_string_schema",
+			input:    `{"oneOf":[{"type":"string"},{"type":"object"}]}`,
+			expected: `{"type":"string","oneOf":[{"type":"string"},{"type":"object","properties":{}}]}`,
 		},
 	}
 

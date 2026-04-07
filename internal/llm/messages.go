@@ -282,19 +282,55 @@ func resolveMCPToolSchemaType(schema map[string]any) string {
 			}
 		}
 	}
-	if schemaHasValue(schema, "properties") || schemaHasValue(schema, "required") || schemaHasValue(schema, "additionalProperties") {
+	if combinerType := resolveCombinerSchemaType(schema); combinerType != "" {
+		return combinerType
+	}
+	if schemaHasValue(schema, "properties") ||
+		schemaHasValue(schema, "required") ||
+		schemaHasValue(schema, "additionalProperties") {
 		return "object"
 	}
-	if schemaHasValue(schema, "items") || schemaHasValue(schema, "prefixItems") {
+	if schemaHasValue(schema, "items") ||
+		schemaHasValue(schema, "prefixItems") {
 		return "array"
 	}
-	if schemaHasValue(schema, "enum") || schemaHasValue(schema, "const") || schemaHasValue(schema, "format") {
+	if schemaHasValue(schema, "enum") ||
+		schemaHasValue(schema, "const") ||
+		schemaHasValue(schema, "format") {
 		return "string"
 	}
-	if schemaHasValue(schema, "minimum") || schemaHasValue(schema, "maximum") || schemaHasValue(schema, "exclusiveMinimum") || schemaHasValue(schema, "exclusiveMaximum") || schemaHasValue(schema, "multipleOf") {
+	if schemaHasValue(schema, "minimum") ||
+		schemaHasValue(schema, "maximum") ||
+		schemaHasValue(schema, "exclusiveMinimum") ||
+		schemaHasValue(schema, "exclusiveMaximum") ||
+		schemaHasValue(schema, "multipleOf") {
 		return "number"
 	}
-	return "string"
+	return "object"
+}
+
+func resolveCombinerSchemaType(schema map[string]any) string {
+	if combinerType := combinerSchemaType(schema, "anyOf"); combinerType != "" {
+		return combinerType
+	}
+	if combinerType := combinerSchemaType(schema, "oneOf"); combinerType != "" {
+		return combinerType
+	}
+	return ""
+}
+
+func combinerSchemaType(schema map[string]any, key string) string {
+	entries, ok := schema[key].([]any)
+	if !ok || len(entries) == 0 {
+		return ""
+	}
+	if entrySchema, ok := entries[0].(map[string]any); ok {
+		entryType := resolveMCPToolSchemaType(entrySchema)
+		if entryType != "" {
+			return entryType
+		}
+	}
+	return "object"
 }
 
 func schemaHasValue(schema map[string]any, key string) bool {
