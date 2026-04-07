@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"strings"
 
@@ -13,12 +14,14 @@ import (
 )
 
 type Client struct {
-	model string
-	sdk   openai.Client
+	model    string
+	endpoint string
+	sdk      openai.Client
 }
 
 func NewClient(endpoint, apiKey, model string) (*Client, error) {
-	if strings.TrimSpace(endpoint) == "" {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
 		return nil, errors.New("endpoint is required")
 	}
 	if strings.TrimSpace(apiKey) == "" {
@@ -35,7 +38,7 @@ func NewClient(endpoint, apiKey, model string) (*Client, error) {
 		option.WithBaseURL(endpoint),
 		option.WithMaxRetries(2),
 	)
-	return &Client{model: model, sdk: sdk}, nil
+	return &Client{model: model, endpoint: endpoint, sdk: sdk}, nil
 }
 
 func (c *Client) CreateResponse(
@@ -63,6 +66,15 @@ func (c *Client) CreateResponse(
 		params.Instructions = openai.String(strings.TrimSpace(instructions))
 	}
 
+	log.Printf(
+		"agn: llm request endpoint=%s model=%s input_items=%d tools=%d stream=%t",
+		c.endpoint,
+		c.model,
+		len(input),
+		len(tools),
+		stream,
+	)
+
 	if stream {
 		streamResp := c.sdk.Responses.NewStreaming(ctx, params)
 		var final *responses.Response
@@ -77,18 +89,26 @@ func (c *Client) CreateResponse(
 			}
 		}
 		if err := streamResp.Err(); err != nil {
-			return nil, fmt.Errorf("read stream: %w", err)
+			wrapped := fmt.Errorf("read stream: %w", err)
+			logLLMError(wrapped)
+			return nil, wrapped
 		}
 		if final == nil {
-			return nil, errors.New("stream completed without response")
+			err := errors.New("stream completed without response")
+			logLLMError(err)
+			return nil, err
 		}
+		logLLMSuccess(final)
 		return final, nil
 	}
 
 	response, err := c.sdk.Responses.New(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("call llm: %w", err)
+		wrapped := fmt.Errorf("call llm: %w", err)
+		logLLMError(wrapped)
+		return nil, wrapped
 	}
+	logLLMSuccess(response)
 	if onDelta != nil {
 		text := strings.TrimSpace(response.OutputText())
 		if text != "" {
@@ -96,4 +116,28 @@ func (c *Client) CreateResponse(
 		}
 	}
 	return response, nil
+}
+
+func logLLMError(err error) {
+	var apiErr *openai.Error
+	if errors.As(err, &apiErr) && apiErr.StatusCode != 0 {
+		log.Printf("agn: llm error status=%d err=%v", apiErr.StatusCode, err)
+		return
+	}
+	log.Printf("agn: llm error err=%v", err)
+}
+
+func logLLMSuccess(response *responses.Response) {
+	if response.JSON.Usage.Valid() {
+		log.Printf(
+			"agn: llm response id=%s model=%s usage_input=%d usage_output=%d usage_total=%d",
+			response.ID,
+			response.Model,
+			response.Usage.InputTokens,
+			response.Usage.OutputTokens,
+			response.Usage.TotalTokens,
+		)
+		return
+	}
+	log.Printf("agn: llm response id=%s model=%s", response.ID, response.Model)
 }
