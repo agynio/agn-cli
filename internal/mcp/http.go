@@ -25,7 +25,8 @@ func NewHTTPClient(ctx context.Context, url string) (*HTTPClient, error) {
 		nil,
 	)
 	transport := &mcpsdk.StreamableClientTransport{
-		Endpoint: url,
+		Endpoint:             url,
+		DisableStandaloneSSE: true,
 	}
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
