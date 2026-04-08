@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -224,6 +225,8 @@ func (a *Agent) summarize(ctx context.Context, state *State) error {
 	}
 	state.Thread.Messages = result.Messages
 	if result.Performed {
+		// Emit the span retroactively with captured timestamps to cover the
+		// summarization duration without wrapping the call in a span.
 		end := time.Now()
 		_, span := a.tracer.Start(ctx, "summarization", trace.WithTimestamp(start))
 		span.SetAttributes(
@@ -260,8 +263,8 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 		span.AddEvent("agyn.llm.context_item", trace.WithAttributes(
 			attribute.String("agyn.context.role", string(item.Message.Role())),
 			attribute.String("agyn.context.text", text),
-			attribute.String("agyn.context.is_new", boolString(item.IsNew)),
-			attribute.Int("agyn.context.size_bytes", len([]byte(text))),
+			attribute.String("agyn.context.is_new", strconv.FormatBool(item.IsNew)),
+			attribute.Int("agyn.context.size_bytes", len(text)),
 		))
 		contextMessages = append(contextMessages, item.Message)
 	}
@@ -356,44 +359,48 @@ func (a *Agent) callTools(ctx context.Context, state *State) error {
 		return errors.New("mcp client is not configured")
 	}
 	for _, call := range state.PendingToolCalls {
-		spanCtx, span := a.tracer.Start(ctx, "tool.execution")
-		span.SetAttributes(
-			attribute.String("agyn.tool.name", call.Name),
-			attribute.String("agyn.tool.call_id", call.ID),
-			attribute.String("agyn.tool.input", call.Arguments),
-		)
-		if state.EventSink != nil {
-			state.EventSink(Event{Type: EventItemStarted, ThreadID: state.Thread.ID, TurnID: state.TurnID, ItemID: call.ID, ToolName: call.Name})
-		}
-		result, err := a.mcp.CallTool(spanCtx, mcp.ToolCall{ID: call.ID, Name: call.Name, Arguments: json.RawMessage(call.Arguments)})
-		if err != nil {
-			span.End()
+		if err := a.executeTool(ctx, call, state); err != nil {
 			return err
 		}
-		outputPayload, err := json.Marshal(result.Content)
-		if err != nil {
-			span.End()
-			return err
-		}
-		span.SetAttributes(attribute.String("agyn.tool.output", string(outputPayload)))
-		output := message.ToolCallOutput{
-			ToolCallID: call.ID,
-			ToolName:   call.Name,
-			Output:     result.Content,
-		}
-		msg := message.NewToolCallOutputMessage(output)
-		record, err := a.recordFromMessage("", msg)
-		if err != nil {
-			span.End()
-			return err
-		}
-		state.Thread.Messages = append(state.Thread.Messages, record)
-		if state.EventSink != nil {
-			state.EventSink(Event{Type: EventItemDone, ThreadID: state.Thread.ID, TurnID: state.TurnID, ItemID: call.ID, ToolName: call.Name})
-		}
-		span.End()
 	}
 	state.PendingToolCalls = nil
+	return nil
+}
+
+func (a *Agent) executeTool(ctx context.Context, call message.ToolCall, state *State) error {
+	spanCtx, span := a.tracer.Start(ctx, "tool.execution")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("agyn.tool.name", call.Name),
+		attribute.String("agyn.tool.call_id", call.ID),
+		attribute.String("agyn.tool.input", call.Arguments),
+	)
+	if state.EventSink != nil {
+		state.EventSink(Event{Type: EventItemStarted, ThreadID: state.Thread.ID, TurnID: state.TurnID, ItemID: call.ID, ToolName: call.Name})
+	}
+	result, err := a.mcp.CallTool(spanCtx, mcp.ToolCall{ID: call.ID, Name: call.Name, Arguments: json.RawMessage(call.Arguments)})
+	if err != nil {
+		return err
+	}
+	outputPayload, err := json.Marshal(result.Content)
+	if err != nil {
+		return err
+	}
+	span.SetAttributes(attribute.String("agyn.tool.output", string(outputPayload)))
+	output := message.ToolCallOutput{
+		ToolCallID: call.ID,
+		ToolName:   call.Name,
+		Output:     result.Content,
+	}
+	msg := message.NewToolCallOutputMessage(output)
+	record, err := a.recordFromMessage("", msg)
+	if err != nil {
+		return err
+	}
+	state.Thread.Messages = append(state.Thread.Messages, record)
+	if state.EventSink != nil {
+		state.EventSink(Event{Type: EventItemDone, ThreadID: state.Thread.ID, TurnID: state.TurnID, ItemID: call.ID, ToolName: call.Name})
+	}
 	return nil
 }
 
@@ -470,14 +477,10 @@ func contextItemText(msg message.Message) (string, error) {
 	}
 }
 
-func boolString(value bool) string {
-	if value {
-		return "true"
-	}
-	return "false"
-}
-
 func adjustLoadedMessageCount(previousCount, previousLoaded, newContextCount, newTotal int) int {
+	if newTotal == newContextCount {
+		return previousLoaded
+	}
 	newMessages := previousCount - previousLoaded
 	oldKeptCount := newContextCount - newMessages
 	if oldKeptCount < 0 {
