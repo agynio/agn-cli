@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/agynio/agn-cli/internal/llm"
 	"github.com/agynio/agn-cli/internal/mcp"
@@ -60,17 +63,18 @@ type Result struct {
 }
 
 type State struct {
-	Thread           state.Thread
-	TurnID           string
-	Input            *message.HumanMessage
-	RestrictOutput   bool
-	Stream           bool
-	RestrictAttempts int
-	ForceToolCall    bool
-	Tools            []responses.ToolUnionParam
-	PendingToolCalls []message.ToolCall
-	LastAssistant    string
-	EventSink        EventSink
+	Thread             state.Thread
+	TurnID             string
+	Input              *message.HumanMessage
+	RestrictOutput     bool
+	Stream             bool
+	RestrictAttempts   int
+	ForceToolCall      bool
+	Tools              []responses.ToolUnionParam
+	PendingToolCalls   []message.ToolCall
+	LastAssistant      string
+	EventSink          EventSink
+	LoadedMessageCount int
 }
 
 type AgentConfig struct {
@@ -81,6 +85,7 @@ type AgentConfig struct {
 	SystemPrompt        string
 	MaxSteps            int
 	MaxRestrictAttempts int
+	Tracer              trace.Tracer
 }
 
 type Agent struct {
@@ -91,6 +96,7 @@ type Agent struct {
 	systemPrompt        string
 	maxRestrictAttempts int
 	loop                *Loop
+	tracer              trace.Tracer
 }
 
 func NewAgent(cfg AgentConfig) (*Agent, error) {
@@ -111,6 +117,10 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	if maxRestrict <= 0 {
 		maxRestrict = defaultMaxRestrictAttempts
 	}
+	tracer := cfg.Tracer
+	if tracer == nil {
+		tracer = trace.NewNoopTracerProvider().Tracer("agn")
+	}
 
 	agent := &Agent{
 		store:               cfg.Store,
@@ -119,6 +129,7 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 		mcp:                 cfg.MCP,
 		systemPrompt:        cfg.SystemPrompt,
 		maxRestrictAttempts: maxRestrict,
+		tracer:              tracer,
 	}
 
 	stages := map[StageID]Stage{
@@ -153,6 +164,13 @@ func (a *Agent) Run(ctx context.Context, input Input) (Result, error) {
 		input.EventSink(Event{Type: EventTurnStarted, ThreadID: threadID, TurnID: turnID})
 		defer input.EventSink(Event{Type: EventTurnDone, ThreadID: threadID, TurnID: turnID})
 	}
+	spanCtx, span := a.tracer.Start(ctx, "invocation.message")
+	span.SetAttributes(
+		attribute.String("agyn.message.text", input.Prompt.Text),
+		attribute.String("agyn.message.role", "user"),
+		attribute.String("agyn.message.kind", "source"),
+	)
+	defer span.End()
 	state := &State{
 		Thread:         state.Thread{ID: threadID, Messages: []state.MessageRecord{}},
 		TurnID:         turnID,
@@ -161,7 +179,7 @@ func (a *Agent) Run(ctx context.Context, input Input) (Result, error) {
 		Stream:         input.Stream,
 		EventSink:      input.EventSink,
 	}
-	if err := a.loop.Run(ctx, state); err != nil {
+	if err := a.loop.Run(spanCtx, state); err != nil {
 		return Result{}, err
 	}
 	if strings.TrimSpace(state.LastAssistant) == "" {
@@ -176,6 +194,7 @@ func (a *Agent) load(ctx context.Context, state *State) error {
 		return err
 	}
 	state.Thread = thread
+	state.LoadedMessageCount = len(thread.Messages)
 	if state.Input != nil {
 		record, err := a.recordFromMessage("", *state.Input)
 		if err != nil {
@@ -197,18 +216,57 @@ func (a *Agent) load(ctx context.Context, state *State) error {
 }
 
 func (a *Agent) summarize(ctx context.Context, state *State) error {
-	updated, err := a.summarizer.Summarize(ctx, state.Thread.Messages)
+	start := time.Now()
+	previousCount := len(state.Thread.Messages)
+	previousLoaded := state.LoadedMessageCount
+	result, err := a.summarizer.Summarize(ctx, state.Thread.Messages)
 	if err != nil {
 		return err
 	}
-	state.Thread.Messages = updated
+	state.Thread.Messages = result.Messages
+	if result.Performed {
+		// Emit the span retroactively with captured timestamps to cover the
+		// summarization duration without wrapping the call in a span.
+		end := time.Now()
+		_, span := a.tracer.Start(ctx, "summarization", trace.WithTimestamp(start))
+		span.SetAttributes(
+			attribute.String("agyn.summarization.text", result.SummaryText),
+			attribute.Int("agyn.summarization.new_context_count", result.NewContextCount),
+			attribute.Int("agyn.summarization.old_context_tokens", result.OldContextTokens),
+		)
+		span.End(trace.WithTimestamp(end))
+		state.LoadedMessageCount = adjustLoadedMessageCount(
+			previousCount,
+			previousLoaded,
+			result.NewContextCount,
+			len(result.Messages),
+		)
+	}
 	return nil
 }
 
 func (a *Agent) callModel(ctx context.Context, state *State) error {
-	contextMessages, err := a.buildContextMessages(state)
+	spanCtx, span := a.tracer.Start(ctx, "llm.call")
+	defer span.End()
+	span.SetAttributes(attribute.String("gen_ai.system", "openai"))
+
+	contextItems, err := a.buildContextItems(state)
 	if err != nil {
 		return err
+	}
+	contextMessages := make([]message.Message, 0, len(contextItems))
+	for _, item := range contextItems {
+		text, err := contextItemText(item.Message)
+		if err != nil {
+			return err
+		}
+		span.AddEvent("agyn.llm.context_item", trace.WithAttributes(
+			attribute.String("agyn.context.role", string(item.Message.Role())),
+			attribute.String("agyn.context.text", text),
+			attribute.String("agyn.context.is_new", strconv.FormatBool(item.IsNew)),
+			attribute.Int("agyn.context.size_bytes", len(text)),
+		))
+		contextMessages = append(contextMessages, item.Message)
 	}
 	inputs, err := llm.MessagesToInput(contextMessages)
 	if err != nil {
@@ -230,11 +288,24 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 		}
 	}
 
-	response, err := a.llm.CreateResponse(ctx, instructions, inputs, state.Tools, toolChoice, state.Stream, onDelta)
+	response, err := a.llm.CreateResponse(spanCtx, instructions, inputs, state.Tools, toolChoice, state.Stream, onDelta)
 	if err != nil {
 		return err
 	}
 	text := strings.TrimSpace(response.OutputText())
+	span.SetAttributes(
+		attribute.String("gen_ai.request.model", response.Model),
+		attribute.String("gen_ai.response.finish_reason", string(response.Status)),
+		attribute.String("agyn.llm.response_text", text),
+	)
+	if response.JSON.Usage.Valid() {
+		span.SetAttributes(
+			attribute.Int64("gen_ai.usage.input_tokens", response.Usage.InputTokens),
+			attribute.Int64("gen_ai.usage.output_tokens", response.Usage.OutputTokens),
+			attribute.Int64("gen_ai.usage.cache_read.input_tokens", response.Usage.InputTokensDetails.CachedTokens),
+			attribute.Int64("agyn.usage.reasoning_tokens", response.Usage.OutputTokensDetails.ReasoningTokens),
+		)
+	}
 	toolCalls := llm.ExtractToolCalls(response)
 
 	if text == "" && len(toolCalls) == 0 {
@@ -288,29 +359,48 @@ func (a *Agent) callTools(ctx context.Context, state *State) error {
 		return errors.New("mcp client is not configured")
 	}
 	for _, call := range state.PendingToolCalls {
-		if state.EventSink != nil {
-			state.EventSink(Event{Type: EventItemStarted, ThreadID: state.Thread.ID, TurnID: state.TurnID, ItemID: call.ID, ToolName: call.Name})
-		}
-		result, err := a.mcp.CallTool(ctx, mcp.ToolCall{ID: call.ID, Name: call.Name, Arguments: json.RawMessage(call.Arguments)})
-		if err != nil {
+		if err := a.executeTool(ctx, call, state); err != nil {
 			return err
-		}
-		output := message.ToolCallOutput{
-			ToolCallID: call.ID,
-			ToolName:   call.Name,
-			Output:     result.Content,
-		}
-		msg := message.NewToolCallOutputMessage(output)
-		record, err := a.recordFromMessage("", msg)
-		if err != nil {
-			return err
-		}
-		state.Thread.Messages = append(state.Thread.Messages, record)
-		if state.EventSink != nil {
-			state.EventSink(Event{Type: EventItemDone, ThreadID: state.Thread.ID, TurnID: state.TurnID, ItemID: call.ID, ToolName: call.Name})
 		}
 	}
 	state.PendingToolCalls = nil
+	return nil
+}
+
+func (a *Agent) executeTool(ctx context.Context, call message.ToolCall, state *State) error {
+	spanCtx, span := a.tracer.Start(ctx, "tool.execution")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("agyn.tool.name", call.Name),
+		attribute.String("agyn.tool.call_id", call.ID),
+		attribute.String("agyn.tool.input", call.Arguments),
+	)
+	if state.EventSink != nil {
+		state.EventSink(Event{Type: EventItemStarted, ThreadID: state.Thread.ID, TurnID: state.TurnID, ItemID: call.ID, ToolName: call.Name})
+	}
+	result, err := a.mcp.CallTool(spanCtx, mcp.ToolCall{ID: call.ID, Name: call.Name, Arguments: json.RawMessage(call.Arguments)})
+	if err != nil {
+		return err
+	}
+	outputPayload, err := json.Marshal(result.Content)
+	if err != nil {
+		return err
+	}
+	span.SetAttributes(attribute.String("agyn.tool.output", string(outputPayload)))
+	output := message.ToolCallOutput{
+		ToolCallID: call.ID,
+		ToolName:   call.Name,
+		Output:     result.Content,
+	}
+	msg := message.NewToolCallOutputMessage(output)
+	record, err := a.recordFromMessage("", msg)
+	if err != nil {
+		return err
+	}
+	state.Thread.Messages = append(state.Thread.Messages, record)
+	if state.EventSink != nil {
+		state.EventSink(Event{Type: EventItemDone, ThreadID: state.Thread.ID, TurnID: state.TurnID, ItemID: call.ID, ToolName: call.Name})
+	}
 	return nil
 }
 
@@ -338,19 +428,67 @@ func (a *Agent) recordFromMessage(recordID string, msg message.Message) (state.M
 	}, nil
 }
 
-func (a *Agent) buildContextMessages(state *State) ([]message.Message, error) {
-	contextMessages := make([]message.Message, 0, len(state.Thread.Messages)+1)
+func (a *Agent) buildContextItems(state *State) ([]contextItem, error) {
+	contextItems := make([]contextItem, 0, len(state.Thread.Messages)+1)
 	if strings.TrimSpace(a.systemPrompt) != "" {
-		contextMessages = append(contextMessages, message.NewSystemMessage(a.systemPrompt))
+		contextItems = append(contextItems, contextItem{Message: message.NewSystemMessage(a.systemPrompt), IsNew: false})
 	}
-	for _, record := range state.Thread.Messages {
+	for index, record := range state.Thread.Messages {
 		if !message.IsContextMessage(record.Message) {
 			continue
 		}
-		contextMessages = append(contextMessages, record.Message)
+		contextItems = append(contextItems, contextItem{Message: record.Message, IsNew: index >= state.LoadedMessageCount})
 	}
-	if len(contextMessages) == 0 {
+	if len(contextItems) == 0 {
 		return nil, fmt.Errorf("no context messages available")
 	}
-	return contextMessages, nil
+	return contextItems, nil
+}
+
+type contextItem struct {
+	Message message.Message
+	IsNew   bool
+}
+
+func contextItemText(msg message.Message) (string, error) {
+	switch typed := msg.(type) {
+	case message.SystemMessage:
+		return typed.Text, nil
+	case message.HumanMessage:
+		return typed.Text, nil
+	case message.AIMessage:
+		return typed.Text, nil
+	case message.ToolCallMessage:
+		payload, err := json.Marshal(typed.ToolCalls)
+		if err != nil {
+			return "", err
+		}
+		return string(payload), nil
+	case message.ToolCallOutputMessage:
+		payload, err := json.Marshal(typed.Output)
+		if err != nil {
+			return "", err
+		}
+		return string(payload), nil
+	case message.ResponseMessage:
+		return "", errors.New("response messages are not valid context items")
+	default:
+		return "", fmt.Errorf("unsupported message type %T", msg)
+	}
+}
+
+func adjustLoadedMessageCount(previousCount, previousLoaded, newContextCount, newTotal int) int {
+	if newTotal == newContextCount {
+		return previousLoaded
+	}
+	newMessages := previousCount - previousLoaded
+	oldKeptCount := newContextCount - newMessages
+	if oldKeptCount < 0 {
+		oldKeptCount = 0
+	}
+	adjusted := 1 + oldKeptCount
+	if adjusted > newTotal {
+		return newTotal
+	}
+	return adjusted
 }

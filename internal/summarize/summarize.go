@@ -34,6 +34,14 @@ type Summarizer struct {
 	tokenCounter TokenCounter
 }
 
+type SummarizeResult struct {
+	Messages         []state.MessageRecord
+	Performed        bool
+	SummaryText      string
+	NewContextCount  int
+	OldContextTokens int
+}
+
 func New(client *llm.Client, cfg Config) (*Summarizer, error) {
 	if client == nil {
 		return nil, errors.New("llm client is required")
@@ -65,20 +73,20 @@ func (s *Summarizer) CountTokens(msg message.Message) (int, error) {
 	return s.tokenCounter(msg)
 }
 
-func (s *Summarizer) Summarize(ctx context.Context, messages []state.MessageRecord) ([]state.MessageRecord, error) {
+func (s *Summarizer) Summarize(ctx context.Context, messages []state.MessageRecord) (SummarizeResult, error) {
 	if len(messages) == 0 {
-		return messages, nil
+		return SummarizeResult{Messages: messages}, nil
 	}
 
 	totalTokens := 0
 	for _, record := range messages {
 		if record.TokenCount <= 0 {
-			return nil, errors.New("message token count missing")
+			return SummarizeResult{}, errors.New("message token count missing")
 		}
 		totalTokens += record.TokenCount
 	}
 	if totalTokens <= s.maxTokens {
-		return messages, nil
+		return SummarizeResult{Messages: messages}, nil
 	}
 
 	keepIndex := len(messages)
@@ -91,7 +99,7 @@ func (s *Summarizer) Summarize(ctx context.Context, messages []state.MessageReco
 		}
 	}
 	if keepIndex <= 0 {
-		return messages, nil
+		return SummarizeResult{Messages: messages}, nil
 	}
 	// Adjust keepIndex to avoid splitting tool_call/tool_output pairs.
 	// If kept would start with tool_output messages, walk keepIndex backward
@@ -104,29 +112,29 @@ func (s *Summarizer) Summarize(ctx context.Context, messages []state.MessageReco
 	kept := messages[keepIndex:]
 	input := renderSummaryInput(older)
 	if strings.TrimSpace(input) == "" {
-		return messages, nil
+		return SummarizeResult{Messages: messages}, nil
 	}
 
 	instructions := "Summarize the thread history. Keep decisions, tool usage, and requirements. Be concise."
 	user := message.NewHumanMessage(input)
 	inputs, err := llm.MessagesToInput([]message.Message{user})
 	if err != nil {
-		return nil, err
+		return SummarizeResult{}, err
 	}
 	toolChoice := responses.ResponseNewParamsToolChoiceUnion{}
 	response, err := s.client.CreateResponse(ctx, instructions, inputs, nil, toolChoice, false, nil)
 	if err != nil {
-		return nil, err
+		return SummarizeResult{}, err
 	}
 	summaryText := strings.TrimSpace(response.OutputText())
 	if summaryText == "" {
-		return nil, errors.New("summary response was empty")
+		return SummarizeResult{}, errors.New("summary response was empty")
 	}
 
 	summary := message.NewSummaryMessage(summaryText)
 	tokenCount, err := s.tokenCounter(summary)
 	if err != nil {
-		return nil, err
+		return SummarizeResult{}, err
 	}
 
 	summaryRecord := state.MessageRecord{
@@ -139,7 +147,19 @@ func (s *Summarizer) Summarize(ctx context.Context, messages []state.MessageReco
 	result := make([]state.MessageRecord, 0, 1+len(kept))
 	result = append(result, summaryRecord)
 	result = append(result, kept...)
-	return result, nil
+
+	oldContextTokens := 0
+	for _, record := range older {
+		oldContextTokens += record.TokenCount
+	}
+
+	return SummarizeResult{
+		Messages:         result,
+		Performed:        true,
+		SummaryText:      summaryText,
+		NewContextCount:  len(kept),
+		OldContextTokens: oldContextTokens,
+	}, nil
 }
 
 func renderSummaryInput(records []state.MessageRecord) string {
