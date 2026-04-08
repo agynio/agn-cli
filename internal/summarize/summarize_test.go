@@ -76,7 +76,8 @@ func TestSummarizeUnderThreshold(t *testing.T) {
 
 	result, err := instance.Summarize(context.Background(), records)
 	require.NoError(t, err)
-	require.Equal(t, records, result)
+	require.Equal(t, records, result.Messages)
+	require.False(t, result.Performed)
 }
 
 func TestSummarizeEmptyInput(t *testing.T) {
@@ -86,7 +87,8 @@ func TestSummarizeEmptyInput(t *testing.T) {
 
 	result, err := instance.Summarize(context.Background(), nil)
 	require.NoError(t, err)
-	require.Empty(t, result)
+	require.Empty(t, result.Messages)
+	require.False(t, result.Performed)
 }
 
 func TestSummarizeEmptySummaryInput(t *testing.T) {
@@ -117,7 +119,8 @@ func TestSummarizeEmptySummaryInput(t *testing.T) {
 
 	result, err := instance.Summarize(context.Background(), records)
 	require.NoError(t, err)
-	require.Equal(t, records, result)
+	require.Equal(t, records, result.Messages)
+	require.False(t, result.Performed)
 }
 
 func TestSummarizeToolOutputBoundary(t *testing.T) {
@@ -163,17 +166,21 @@ func TestSummarizeToolOutputBoundary(t *testing.T) {
 
 	result, err := instance.Summarize(context.Background(), records)
 	require.NoError(t, err)
-	require.Len(t, result, 4)
+	require.Len(t, result.Messages, 4)
 	require.Equal(t, int32(1), requests.Load())
+	require.True(t, result.Performed)
+	require.Equal(t, "summary", result.SummaryText)
+	require.Equal(t, 3, result.NewContextCount)
+	require.Equal(t, 10, result.OldContextTokens)
 
-	summaryMessage, ok := result[0].Message.(message.SystemMessage)
+	summaryMessage, ok := result.Messages[0].Message.(message.SystemMessage)
 	require.True(t, ok)
 	require.Equal(t, message.KindSummary, summaryMessage.Kind())
 	require.Equal(t, "summary", summaryMessage.Text)
-	require.Equal(t, records[0].CreatedAt, result[0].CreatedAt)
-	require.Equal(t, message.KindToolCall, result[1].Message.Kind())
-	require.Equal(t, message.KindToolCallOutput, result[2].Message.Kind())
-	require.Equal(t, message.KindAI, result[3].Message.Kind())
+	require.Equal(t, records[0].CreatedAt, result.Messages[0].CreatedAt)
+	require.Equal(t, message.KindToolCall, result.Messages[1].Message.Kind())
+	require.Equal(t, message.KindToolCallOutput, result.Messages[2].Message.Kind())
+	require.Equal(t, message.KindAI, result.Messages[3].Message.Kind())
 }
 
 func TestSummarizeToolOutputBoundaryMultipleOutputs(t *testing.T) {
@@ -229,12 +236,16 @@ func TestSummarizeToolOutputBoundaryMultipleOutputs(t *testing.T) {
 
 	result, err := instance.Summarize(context.Background(), records)
 	require.NoError(t, err)
-	require.Len(t, result, 5)
+	require.Len(t, result.Messages, 5)
 	require.Equal(t, int32(1), requests.Load())
-	require.Equal(t, message.KindToolCall, result[1].Message.Kind())
-	require.Equal(t, message.KindToolCallOutput, result[2].Message.Kind())
-	require.Equal(t, message.KindToolCallOutput, result[3].Message.Kind())
-	require.Equal(t, message.KindAI, result[4].Message.Kind())
+	require.True(t, result.Performed)
+	require.Equal(t, "summary", result.SummaryText)
+	require.Equal(t, 4, result.NewContextCount)
+	require.Equal(t, 8, result.OldContextTokens)
+	require.Equal(t, message.KindToolCall, result.Messages[1].Message.Kind())
+	require.Equal(t, message.KindToolCallOutput, result.Messages[2].Message.Kind())
+	require.Equal(t, message.KindToolCallOutput, result.Messages[3].Message.Kind())
+	require.Equal(t, message.KindAI, result.Messages[4].Message.Kind())
 }
 
 func TestSummarizeToolOutputNoAdjustment(t *testing.T) {
@@ -280,10 +291,14 @@ func TestSummarizeToolOutputNoAdjustment(t *testing.T) {
 
 	result, err := instance.Summarize(context.Background(), records)
 	require.NoError(t, err)
-	require.Len(t, result, 2)
+	require.Len(t, result.Messages, 2)
 	require.Equal(t, int32(1), requests.Load())
-	require.Equal(t, records[2].CreatedAt, result[0].CreatedAt)
-	require.Equal(t, message.KindAI, result[1].Message.Kind())
+	require.True(t, result.Performed)
+	require.Equal(t, "summary", result.SummaryText)
+	require.Equal(t, 1, result.NewContextCount)
+	require.Equal(t, 16, result.OldContextTokens)
+	require.Equal(t, records[2].CreatedAt, result.Messages[0].CreatedAt)
+	require.Equal(t, message.KindAI, result.Messages[1].Message.Kind())
 }
 
 func TestSummarizeToolOutputKeepIndexZero(t *testing.T) {
@@ -317,8 +332,9 @@ func TestSummarizeToolOutputKeepIndexZero(t *testing.T) {
 
 	result, err := instance.Summarize(context.Background(), records)
 	require.NoError(t, err)
-	require.Equal(t, records, result)
+	require.Equal(t, records, result.Messages)
 	require.Equal(t, int32(0), requests.Load())
+	require.False(t, result.Performed)
 }
 
 func mustClient(t *testing.T) *llm.Client {

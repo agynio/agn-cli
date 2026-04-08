@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/agynio/agn-cli/internal/server"
 	"github.com/agynio/agn-cli/internal/state"
 	"github.com/agynio/agn-cli/internal/summarize"
+	"github.com/agynio/agn-cli/internal/telemetry"
 )
 
 func main() {
@@ -161,18 +163,36 @@ func serveCommand() *cobra.Command {
 }
 
 func buildAgent(ctx context.Context, cfg config.Config) (*loop.Agent, state.Store, func(), error) {
+	tracerProvider, err := telemetry.Init(ctx)
+	if err != nil {
+		return nil, nil, func() {}, err
+	}
+	tracer := tracerProvider.Tracer("agn")
+	var mcpProvider mcp.ToolProvider
+	cleanup := func() {
+		if mcpProvider != nil {
+			_ = mcpProvider.Close()
+		}
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = tracerProvider.Shutdown(shutdownCtx)
+	}
+
 	apiKey, err := cfg.LLM.Auth.ResolveAPIKey()
 	if err != nil {
+		cleanup()
 		return nil, nil, func() {}, err
 	}
 	llmClient, err := llm.NewClient(cfg.LLM.Endpoint, apiKey, cfg.LLM.Model)
 	if err != nil {
+		cleanup()
 		return nil, nil, func() {}, err
 	}
 	summarizerClient := llmClient
 	if cfg.Summarization.LLM != nil {
 		summarizerKey, err := cfg.Summarization.LLM.Auth.ResolveAPIKey()
 		if err != nil {
+			cleanup()
 			return nil, nil, func() {}, err
 		}
 		summarizerClient, err = llm.NewClient(
@@ -181,6 +201,7 @@ func buildAgent(ctx context.Context, cfg config.Config) (*loop.Agent, state.Stor
 			cfg.Summarization.LLM.Model,
 		)
 		if err != nil {
+			cleanup()
 			return nil, nil, func() {}, err
 		}
 	}
@@ -189,20 +210,18 @@ func buildAgent(ctx context.Context, cfg config.Config) (*loop.Agent, state.Stor
 		MaxTokens:  cfg.Summarization.MaxTokens,
 	})
 	if err != nil {
+		cleanup()
 		return nil, nil, func() {}, err
 	}
 	store, err := state.NewDefaultLocalStore()
 	if err != nil {
+		cleanup()
 		return nil, nil, func() {}, err
 	}
-	mcpProvider, err := newMCPProvider(ctx, cfg.MCP)
+	mcpProvider, err = newMCPProvider(ctx, cfg.MCP)
 	if err != nil {
+		cleanup()
 		return nil, nil, func() {}, err
-	}
-	cleanup := func() {
-		if mcpProvider != nil {
-			_ = mcpProvider.Close()
-		}
 	}
 	agent, err := loop.NewAgent(loop.AgentConfig{
 		Store:        store,
@@ -210,6 +229,7 @@ func buildAgent(ctx context.Context, cfg config.Config) (*loop.Agent, state.Stor
 		Summarizer:   summarizer,
 		MCP:          mcpProvider,
 		SystemPrompt: cfg.SystemPrompt,
+		Tracer:       tracer,
 	})
 	if err != nil {
 		cleanup()
