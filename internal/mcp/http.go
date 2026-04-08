@@ -79,6 +79,13 @@ func (h *HTTPClient) CallTool(ctx context.Context, call ToolCall) (ToolResult, e
 	if result == nil {
 		return ToolResult{}, errors.New("tool result is nil")
 	}
+	if result.StructuredContent != nil {
+		payload, err := json.Marshal(result.StructuredContent)
+		if err != nil {
+			return ToolResult{}, fmt.Errorf("marshal structured content: %w", err)
+		}
+		return ToolResult{Content: []ContentItem{{Type: ContentTypeText, Text: string(payload)}}}, nil
+	}
 	items := make([]ContentItem, 0, len(result.Content))
 	for _, content := range result.Content {
 		switch typed := content.(type) {
