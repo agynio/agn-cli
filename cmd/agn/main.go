@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,12 +22,15 @@ import (
 	"github.com/agynio/agn-cli/internal/telemetry"
 )
 
+const loopMaxStepsEnvVar = "AGN_LOOP_MAX_STEPS"
+
 func main() {
 	root := &cobra.Command{
 		Use:          "agn",
 		Short:        "Agent loop CLI",
 		SilenceUsage: true,
 	}
+	root.PersistentFlags().Int("max-steps", loop.DefaultMaxSteps, "Maximum loop steps")
 	root.AddCommand(execCommand(), serveCommand())
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -49,7 +53,11 @@ func execCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			agent, _, cleanup, err := buildAgent(cmd.Context(), cfg)
+			maxSteps, err := resolveMaxSteps(cmd, cfg)
+			if err != nil {
+				return err
+			}
+			agent, _, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
 			if err != nil {
 				return err
 			}
@@ -95,7 +103,11 @@ func execResumeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			agent, store, cleanup, err := buildAgent(cmd.Context(), cfg)
+			maxSteps, err := resolveMaxSteps(cmd, cfg)
+			if err != nil {
+				return err
+			}
+			agent, store, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
 			if err != nil {
 				return err
 			}
@@ -150,7 +162,11 @@ func serveCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			agent, store, cleanup, err := buildAgent(cmd.Context(), cfg)
+			maxSteps, err := resolveMaxSteps(cmd, cfg)
+			if err != nil {
+				return err
+			}
+			agent, store, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
 			if err != nil {
 				return err
 			}
@@ -162,7 +178,40 @@ func serveCommand() *cobra.Command {
 	return cmd
 }
 
-func buildAgent(ctx context.Context, cfg config.Config) (*loop.Agent, state.Store, func(), error) {
+func resolveMaxSteps(cmd *cobra.Command, cfg config.Config) (int, error) {
+	flag := cmd.Flags().Lookup("max-steps")
+	if flag == nil {
+		flag = cmd.InheritedFlags().Lookup("max-steps")
+	}
+	if flag != nil && flag.Changed {
+		value, err := strconv.Atoi(flag.Value.String())
+		if err != nil {
+			return 0, fmt.Errorf("--max-steps must be an integer >= 1")
+		}
+		return validateMaxSteps(value, "--max-steps")
+	}
+	envValue := strings.TrimSpace(os.Getenv(loopMaxStepsEnvVar))
+	if envValue != "" {
+		value, err := strconv.Atoi(envValue)
+		if err != nil {
+			return 0, fmt.Errorf("%s must be an integer >= 1", loopMaxStepsEnvVar)
+		}
+		return validateMaxSteps(value, loopMaxStepsEnvVar)
+	}
+	if cfg.Loop.MaxSteps != nil {
+		return *cfg.Loop.MaxSteps, nil
+	}
+	return loop.DefaultMaxSteps, nil
+}
+
+func validateMaxSteps(value int, source string) (int, error) {
+	if value < 1 {
+		return 0, fmt.Errorf("%s must be >= 1", source)
+	}
+	return value, nil
+}
+
+func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Agent, state.Store, func(), error) {
 	tracerProvider, err := telemetry.Init(ctx)
 	if err != nil {
 		return nil, nil, func() {}, err
@@ -229,6 +278,7 @@ func buildAgent(ctx context.Context, cfg config.Config) (*loop.Agent, state.Stor
 		Summarizer:   summarizer,
 		MCP:          mcpProvider,
 		SystemPrompt: cfg.SystemPrompt,
+		MaxSteps:     maxSteps,
 		Tracer:       tracer,
 	})
 	if err != nil {

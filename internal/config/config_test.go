@@ -112,6 +112,41 @@ summarization:
 	require.Equal(t, 20, cfg.Summarization.MaxTokens)
 }
 
+func TestLoadConfigWithLoopMaxSteps(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+loop:
+  max_steps: 500
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Loop.MaxSteps)
+	require.Equal(t, 500, *cfg.Loop.MaxSteps)
+}
+
+func TestLoadConfigWithInvalidLoopMaxSteps(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+loop:
+  max_steps: 0
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "loop.max_steps must be >= 1")
+}
+
 func TestLoadConfigInvalidSummarizationLLM(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	content := []byte(`llm:

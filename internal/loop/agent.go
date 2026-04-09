@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	defaultMaxSteps            = 20
+	DefaultMaxSteps            = 1000
 	defaultMaxRestrictAttempts = 2
 )
 
@@ -111,7 +111,7 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	}
 	maxSteps := cfg.MaxSteps
 	if maxSteps <= 0 {
-		maxSteps = defaultMaxSteps
+		maxSteps = DefaultMaxSteps
 	}
 	maxRestrict := cfg.MaxRestrictAttempts
 	if maxRestrict <= 0 {
