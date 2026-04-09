@@ -111,7 +111,7 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	}
 	maxSteps := cfg.MaxSteps
 	if maxSteps <= 0 {
-		maxSteps = DefaultMaxSteps
+		return nil, errors.New("max steps must be >= 1")
 	}
 	maxRestrict := cfg.MaxRestrictAttempts
 	if maxRestrict <= 0 {

@@ -179,14 +179,10 @@ func serveCommand() *cobra.Command {
 }
 
 func resolveMaxSteps(cmd *cobra.Command, cfg config.Config) (int, error) {
-	flag := cmd.Flags().Lookup("max-steps")
-	if flag == nil {
-		flag = cmd.InheritedFlags().Lookup("max-steps")
-	}
-	if flag != nil && flag.Changed {
-		value, err := strconv.Atoi(flag.Value.String())
+	if cmd.Flags().Changed("max-steps") {
+		value, err := cmd.Flags().GetInt("max-steps")
 		if err != nil {
-			return 0, fmt.Errorf("--max-steps must be an integer >= 1")
+			return 0, err
 		}
 		return validateMaxSteps(value, "--max-steps")
 	}
