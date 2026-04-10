@@ -17,6 +17,7 @@ const configEnvVar = "AGN_CONFIG_PATH"
 type Config struct {
 	LLM           LLMConfig           `yaml:"llm"`
 	SystemPrompt  string              `yaml:"system_prompt"`
+	Loop          LoopConfig          `yaml:"loop"`
 	Summarization SummarizationConfig `yaml:"summarization"`
 	MCP           MCPConfig           `yaml:"mcp"`
 }
@@ -31,6 +32,10 @@ type SummarizationConfig struct {
 	LLM        *LLMConfig `yaml:"llm"`
 	KeepTokens int        `yaml:"keep_tokens"`
 	MaxTokens  int        `yaml:"max_tokens"`
+}
+
+type LoopConfig struct {
+	MaxSteps *int `yaml:"max_steps"`
 }
 
 type AuthConfig struct {
@@ -96,6 +101,9 @@ func (c Config) Validate() error {
 	if err := c.Summarization.Validate(); err != nil {
 		return err
 	}
+	if err := c.Loop.Validate(); err != nil {
+		return err
+	}
 	if err := c.MCP.Validate(); err != nil {
 		return err
 	}
@@ -125,6 +133,16 @@ func (s SummarizationConfig) Validate() error {
 	}
 	if err := s.LLM.Validate(); err != nil {
 		return fmt.Errorf("summarization.%s", err)
+	}
+	return nil
+}
+
+func (l LoopConfig) Validate() error {
+	if l.MaxSteps == nil {
+		return nil
+	}
+	if *l.MaxSteps < 1 {
+		return errors.New("loop.max_steps must be >= 1")
 	}
 	return nil
 }

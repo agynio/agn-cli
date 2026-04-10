@@ -49,7 +49,8 @@ func execCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			agent, _, cleanup, err := buildAgent(cmd.Context(), cfg)
+			maxSteps := resolveMaxSteps(cfg)
+			agent, _, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
 			if err != nil {
 				return err
 			}
@@ -95,7 +96,8 @@ func execResumeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			agent, store, cleanup, err := buildAgent(cmd.Context(), cfg)
+			maxSteps := resolveMaxSteps(cfg)
+			agent, store, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
 			if err != nil {
 				return err
 			}
@@ -150,7 +152,8 @@ func serveCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			agent, store, cleanup, err := buildAgent(cmd.Context(), cfg)
+			maxSteps := resolveMaxSteps(cfg)
+			agent, store, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
 			if err != nil {
 				return err
 			}
@@ -162,7 +165,14 @@ func serveCommand() *cobra.Command {
 	return cmd
 }
 
-func buildAgent(ctx context.Context, cfg config.Config) (*loop.Agent, state.Store, func(), error) {
+func resolveMaxSteps(cfg config.Config) int {
+	if cfg.Loop.MaxSteps != nil {
+		return *cfg.Loop.MaxSteps
+	}
+	return loop.DefaultMaxSteps
+}
+
+func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Agent, state.Store, func(), error) {
 	tracerProvider, err := telemetry.Init(ctx)
 	if err != nil {
 		return nil, nil, func() {}, err
@@ -229,6 +239,7 @@ func buildAgent(ctx context.Context, cfg config.Config) (*loop.Agent, state.Stor
 		Summarizer:   summarizer,
 		MCP:          mcpProvider,
 		SystemPrompt: cfg.SystemPrompt,
+		MaxSteps:     maxSteps,
 		Tracer:       tracer,
 	})
 	if err != nil {
