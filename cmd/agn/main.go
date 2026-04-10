@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -22,15 +21,12 @@ import (
 	"github.com/agynio/agn-cli/internal/telemetry"
 )
 
-const loopMaxStepsEnvVar = "AGN_LOOP_MAX_STEPS"
-
 func main() {
 	root := &cobra.Command{
 		Use:          "agn",
 		Short:        "Agent loop CLI",
 		SilenceUsage: true,
 	}
-	root.PersistentFlags().Int("max-steps", loop.DefaultMaxSteps, "Maximum loop steps")
 	root.AddCommand(execCommand(), serveCommand())
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -53,10 +49,7 @@ func execCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			maxSteps, err := resolveMaxSteps(cmd, cfg)
-			if err != nil {
-				return err
-			}
+			maxSteps := resolveMaxSteps(cfg)
 			agent, _, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
 			if err != nil {
 				return err
@@ -103,10 +96,7 @@ func execResumeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			maxSteps, err := resolveMaxSteps(cmd, cfg)
-			if err != nil {
-				return err
-			}
+			maxSteps := resolveMaxSteps(cfg)
 			agent, store, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
 			if err != nil {
 				return err
@@ -162,10 +152,7 @@ func serveCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			maxSteps, err := resolveMaxSteps(cmd, cfg)
-			if err != nil {
-				return err
-			}
+			maxSteps := resolveMaxSteps(cfg)
 			agent, store, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
 			if err != nil {
 				return err
@@ -178,33 +165,11 @@ func serveCommand() *cobra.Command {
 	return cmd
 }
 
-func resolveMaxSteps(cmd *cobra.Command, cfg config.Config) (int, error) {
-	if cmd.Flags().Changed("max-steps") {
-		value, err := cmd.Flags().GetInt("max-steps")
-		if err != nil {
-			return 0, err
-		}
-		return validateMaxSteps(value, "--max-steps")
-	}
-	envValue := strings.TrimSpace(os.Getenv(loopMaxStepsEnvVar))
-	if envValue != "" {
-		value, err := strconv.Atoi(envValue)
-		if err != nil {
-			return 0, fmt.Errorf("%s must be an integer >= 1", loopMaxStepsEnvVar)
-		}
-		return validateMaxSteps(value, loopMaxStepsEnvVar)
-	}
+func resolveMaxSteps(cfg config.Config) int {
 	if cfg.Loop.MaxSteps != nil {
-		return *cfg.Loop.MaxSteps, nil
+		return *cfg.Loop.MaxSteps
 	}
-	return loop.DefaultMaxSteps, nil
-}
-
-func validateMaxSteps(value int, source string) (int, error) {
-	if value < 1 {
-		return 0, fmt.Errorf("%s must be >= 1", source)
-	}
-	return value, nil
+	return loop.DefaultMaxSteps
 }
 
 func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Agent, state.Store, func(), error) {
