@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -50,7 +49,7 @@ func execCommand() *cobra.Command {
 				return err
 			}
 			maxSteps := resolveMaxSteps(cfg)
-			agent, _, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
+			agent, _, _, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
 			if err != nil {
 				return err
 			}
@@ -97,7 +96,7 @@ func execResumeCommand() *cobra.Command {
 				return err
 			}
 			maxSteps := resolveMaxSteps(cfg)
-			agent, store, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
+			agent, store, _, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
 			if err != nil {
 				return err
 			}
@@ -153,12 +152,12 @@ func serveCommand() *cobra.Command {
 				return err
 			}
 			maxSteps := resolveMaxSteps(cfg)
-			agent, store, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
+			agent, store, flush, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
 			if err != nil {
 				return err
 			}
 			defer cleanup()
-			srv := server.New(agent, store)
+			srv := server.New(agent, store, flush)
 			return srv.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}
@@ -172,10 +171,10 @@ func resolveMaxSteps(cfg config.Config) int {
 	return loop.DefaultMaxSteps
 }
 
-func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Agent, state.Store, func(), error) {
+func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Agent, state.Store, func(context.Context) error, func(), error) {
 	tracerProvider, err := telemetry.Init(ctx)
 	if err != nil {
-		return nil, nil, func() {}, err
+		return nil, nil, nil, func() {}, err
 	}
 	tracer := tracerProvider.Tracer("agn")
 	var mcpProvider mcp.ToolProvider
@@ -183,7 +182,7 @@ func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Age
 		if mcpProvider != nil {
 			_ = mcpProvider.Close()
 		}
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), telemetry.FlushTimeout)
 		defer cancel()
 		_ = tracerProvider.Shutdown(shutdownCtx)
 	}
@@ -191,19 +190,19 @@ func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Age
 	apiKey, err := cfg.LLM.Auth.ResolveAPIKey()
 	if err != nil {
 		cleanup()
-		return nil, nil, func() {}, err
+		return nil, nil, nil, func() {}, err
 	}
 	llmClient, err := llm.NewClient(cfg.LLM.Endpoint, apiKey, cfg.LLM.Model)
 	if err != nil {
 		cleanup()
-		return nil, nil, func() {}, err
+		return nil, nil, nil, func() {}, err
 	}
 	summarizerClient := llmClient
 	if cfg.Summarization.LLM != nil {
 		summarizerKey, err := cfg.Summarization.LLM.Auth.ResolveAPIKey()
 		if err != nil {
 			cleanup()
-			return nil, nil, func() {}, err
+			return nil, nil, nil, func() {}, err
 		}
 		summarizerClient, err = llm.NewClient(
 			cfg.Summarization.LLM.Endpoint,
@@ -212,7 +211,7 @@ func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Age
 		)
 		if err != nil {
 			cleanup()
-			return nil, nil, func() {}, err
+			return nil, nil, nil, func() {}, err
 		}
 	}
 	summarizer, err := summarize.New(summarizerClient, summarize.Config{
@@ -221,17 +220,17 @@ func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Age
 	})
 	if err != nil {
 		cleanup()
-		return nil, nil, func() {}, err
+		return nil, nil, nil, func() {}, err
 	}
 	store, err := state.NewDefaultLocalStore()
 	if err != nil {
 		cleanup()
-		return nil, nil, func() {}, err
+		return nil, nil, nil, func() {}, err
 	}
 	mcpProvider, err = newToolProvider(ctx, cfg.Tools, cfg.MCP)
 	if err != nil {
 		cleanup()
-		return nil, nil, func() {}, err
+		return nil, nil, nil, func() {}, err
 	}
 	agent, err := loop.NewAgent(loop.AgentConfig{
 		Store:        store,
@@ -244,9 +243,9 @@ func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Age
 	})
 	if err != nil {
 		cleanup()
-		return nil, nil, func() {}, err
+		return nil, nil, nil, func() {}, err
 	}
-	return agent, store, cleanup, nil
+	return agent, store, tracerProvider.ForceFlush, cleanup, nil
 }
 
 func newToolProvider(ctx context.Context, toolsCfg config.ToolsConfig, mcpCfg config.MCPConfig) (mcp.ToolProvider, error) {

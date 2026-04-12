@@ -25,6 +25,7 @@ import (
 const (
 	DefaultMaxSteps            = 1000
 	defaultMaxRestrictAttempts = 2
+	toolCallInstructions       = "If tool calls are needed, include all required tool calls in a single response."
 )
 
 type EventType string
@@ -75,6 +76,7 @@ type State struct {
 	LastAssistant      string
 	EventSink          EventSink
 	LoadedMessageCount int
+	LLMCallCount       int
 }
 
 type AgentConfig struct {
@@ -246,26 +248,23 @@ func (a *Agent) summarize(ctx context.Context, state *State) error {
 }
 
 func (a *Agent) callModel(ctx context.Context, state *State) error {
-	spanCtx, span := a.tracer.Start(ctx, "llm.call")
-	defer span.End()
-	span.SetAttributes(attribute.String("gen_ai.system", "openai"))
-
 	contextItems, err := a.buildContextItems(state)
 	if err != nil {
 		return err
 	}
 	contextMessages := make([]message.Message, 0, len(contextItems))
+	contextEvents := make([]contextEvent, 0, len(contextItems))
 	for _, item := range contextItems {
 		text, err := contextItemText(item.Message)
 		if err != nil {
 			return err
 		}
-		span.AddEvent("agyn.llm.context_item", trace.WithAttributes(
-			attribute.String("agyn.context.role", string(item.Message.Role())),
-			attribute.String("agyn.context.text", text),
-			attribute.String("agyn.context.is_new", strconv.FormatBool(item.IsNew)),
-			attribute.Int("agyn.context.size_bytes", len(text)),
-		))
+		contextEvents = append(contextEvents, contextEvent{
+			role:      string(item.Message.Role()),
+			text:      text,
+			isNew:     item.IsNew,
+			sizeBytes: len(text),
+		})
 		contextMessages = append(contextMessages, item.Message)
 	}
 	inputs, err := llm.MessagesToInput(contextMessages)
@@ -273,6 +272,9 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 		return err
 	}
 	instructions := ""
+	if len(state.Tools) > 0 {
+		instructions = toolCallInstructions
+	}
 	toolChoice := responses.ResponseNewParamsToolChoiceUnion{}
 	if state.ForceToolCall {
 		toolChoice.OfToolChoiceMode = openai.Opt(responses.ToolChoiceOptionsRequired)
@@ -288,25 +290,24 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 		}
 	}
 
-	response, err := a.llm.CreateResponse(spanCtx, instructions, inputs, state.Tools, toolChoice, state.Stream, onDelta)
+	callIndex := state.LLMCallCount
+	// Record a span for the first LLM call (even on error) to capture context
+	// events. Subsequent calls only emit spans when they return assistant text,
+	// avoiding duplicated context events during tool-call loops.
+	start := time.Now()
+	response, err := a.llm.CreateResponse(ctx, instructions, inputs, state.Tools, toolChoice, state.Stream, onDelta)
 	if err != nil {
+		if callIndex == 0 {
+			a.recordLLMSpan(ctx, start, time.Now(), contextEvents, nil, "")
+		}
+		state.LLMCallCount++
 		return err
 	}
 	text := strings.TrimSpace(response.OutputText())
-	span.SetAttributes(
-		attribute.String("gen_ai.request.model", response.Model),
-		attribute.String("gen_ai.response.finish_reason", string(response.Status)),
-		attribute.String("agyn.llm.response_text", text),
-	)
-	if response.JSON.Usage.Valid() {
-		span.SetAttributes(
-			attribute.Int64("gen_ai.usage.input_tokens", response.Usage.InputTokens),
-			attribute.Int64("gen_ai.usage.output_tokens", response.Usage.OutputTokens),
-			attribute.Int64("gen_ai.usage.cache_read.input_tokens", response.Usage.InputTokensDetails.CachedTokens),
-			attribute.Int64("agyn.usage.reasoning_tokens", response.Usage.OutputTokensDetails.ReasoningTokens),
-		)
-	}
 	toolCalls := llm.ExtractToolCalls(response)
+	if callIndex == 0 || text != "" {
+		a.recordLLMSpan(ctx, start, time.Now(), contextEvents, response, text)
+	}
 
 	if text == "" && len(toolCalls) == 0 {
 		return errors.New("model returned no content")
@@ -331,7 +332,44 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 		state.PendingToolCalls = toolCalls
 	}
 	state.ForceToolCall = false
+	state.LLMCallCount++
 	return nil
+}
+
+func (a *Agent) recordLLMSpan(
+	ctx context.Context,
+	start time.Time,
+	end time.Time,
+	contextEvents []contextEvent,
+	response *responses.Response,
+	text string,
+) {
+	_, span := a.tracer.Start(ctx, "llm.call", trace.WithTimestamp(start))
+	span.SetAttributes(attribute.String("gen_ai.system", "openai"))
+	for _, event := range contextEvents {
+		span.AddEvent("agyn.llm.context_item", trace.WithAttributes(
+			attribute.String("agyn.context.role", event.role),
+			attribute.String("agyn.context.text", event.text),
+			attribute.String("agyn.context.is_new", strconv.FormatBool(event.isNew)),
+			attribute.Int("agyn.context.size_bytes", event.sizeBytes),
+		))
+	}
+	if response != nil {
+		span.SetAttributes(
+			attribute.String("gen_ai.request.model", response.Model),
+			attribute.String("gen_ai.response.finish_reason", string(response.Status)),
+			attribute.String("agyn.llm.response_text", text),
+		)
+		if response.JSON.Usage.Valid() {
+			span.SetAttributes(
+				attribute.Int64("gen_ai.usage.input_tokens", response.Usage.InputTokens),
+				attribute.Int64("gen_ai.usage.output_tokens", response.Usage.OutputTokens),
+				attribute.Int64("gen_ai.usage.cache_read.input_tokens", response.Usage.InputTokensDetails.CachedTokens),
+				attribute.Int64("agyn.usage.reasoning_tokens", response.Usage.OutputTokensDetails.ReasoningTokens),
+			)
+		}
+	}
+	span.End(trace.WithTimestamp(end))
 }
 
 func (a *Agent) route(ctx context.Context, state *State) (StageID, error) {
@@ -448,6 +486,13 @@ func (a *Agent) buildContextItems(state *State) ([]contextItem, error) {
 type contextItem struct {
 	Message message.Message
 	IsNew   bool
+}
+
+type contextEvent struct {
+	role      string
+	text      string
+	isNew     bool
+	sizeBytes int
 }
 
 func contextItemText(msg message.Message) (string, error) {

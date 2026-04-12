@@ -14,6 +14,7 @@ import (
 	"github.com/agynio/agn-cli/internal/loop"
 	"github.com/agynio/agn-cli/internal/message"
 	"github.com/agynio/agn-cli/internal/state"
+	"github.com/agynio/agn-cli/internal/telemetry"
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 type Server struct {
 	agent    *loop.Agent
 	store    state.Store
+	flush    func(context.Context) error
 	writeMu  sync.Mutex
 	inFlight map[string]context.CancelFunc
 	mu       sync.Mutex
@@ -126,10 +128,11 @@ type ThreadResumeParams struct {
 	Stream         bool   `json:"stream,omitempty"`
 }
 
-func New(agent *loop.Agent, store state.Store) *Server {
+func New(agent *loop.Agent, store state.Store, flush func(context.Context) error) *Server {
 	return &Server{
 		agent:    agent,
 		store:    store,
+		flush:    flush,
 		inFlight: make(map[string]context.CancelFunc),
 	}
 }
@@ -381,12 +384,21 @@ func (s *Server) executeTurn(ctx context.Context, req request, writer io.Writer,
 		input.EventSink = s.eventSink(writer, idKey)
 	}
 	result, err := s.agent.Run(ctx, input)
+	s.flushSpans()
 	if err != nil {
 		s.writeResponse(writer, response{JSONRPC: jsonRPCVersion, ID: req.ID, Error: &rpcError{Code: -32603, Message: err.Error()}})
 		return
 	}
 
 	s.writeResponse(writer, response{JSONRPC: jsonRPCVersion, ID: req.ID, Result: TurnResult{ThreadID: result.ThreadID, Response: result.Response}})
+}
+
+func (s *Server) flushSpans() {
+	flushCtx, cancel := context.WithTimeout(context.Background(), telemetry.FlushTimeout)
+	defer cancel()
+	if err := s.flush(flushCtx); err != nil {
+		fmt.Fprintf(os.Stderr, "agn server trace flush error: %v\n", err)
+	}
 }
 
 func (s *Server) eventSink(writer io.Writer, requestID string) loop.EventSink {

@@ -88,7 +88,7 @@ func runServerRequest(t *testing.T, input string) response {
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())
-	server := New(&loop.Agent{}, nil)
+	server := New(&loop.Agent{}, nil, func(context.Context) error { return nil })
 	done := make(chan error, 1)
 	go func() {
 		done <- server.Serve(ctx, inR, outW)
