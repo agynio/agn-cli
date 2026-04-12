@@ -287,3 +287,69 @@ mcp:
 	require.Error(t, err)
 	require.ErrorContains(t, err, "mcp.servers.weather.exactly one of command or url is required")
 }
+
+func TestLoadConfigWithShellToolDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.True(t, cfg.Tools.Shell.EnabledValue())
+	require.Equal(t, 0, cfg.Tools.Shell.Timeout)
+	require.Equal(t, 0, cfg.Tools.Shell.IdleTimeout)
+	require.Equal(t, 0, cfg.Tools.Shell.MaxTimeout)
+	require.Equal(t, 0, cfg.Tools.Shell.MaxIdleTimeout)
+	require.Equal(t, 0, cfg.Tools.Shell.MaxOutput)
+}
+
+func TestLoadConfigWithShellToolSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+tools:
+  shell:
+    enabled: false
+    timeout: 5
+    idle_timeout: 6
+    max_timeout: 10
+    max_idle_timeout: 12
+    max_output: 100
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.False(t, cfg.Tools.Shell.EnabledValue())
+	require.Equal(t, 5, cfg.Tools.Shell.Timeout)
+	require.Equal(t, 6, cfg.Tools.Shell.IdleTimeout)
+	require.Equal(t, 10, cfg.Tools.Shell.MaxTimeout)
+	require.Equal(t, 12, cfg.Tools.Shell.MaxIdleTimeout)
+	require.Equal(t, 100, cfg.Tools.Shell.MaxOutput)
+}
+
+func TestLoadConfigWithInvalidShellToolSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+tools:
+  shell:
+    timeout: -1
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "tools.shell.timeout must be >= 0")
+}
