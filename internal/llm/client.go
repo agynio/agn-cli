@@ -61,6 +61,7 @@ func (c *Client) CreateResponse(
 	}
 	if len(tools) > 0 {
 		params.Tools = tools
+		params.ParallelToolCalls = openai.Bool(true)
 	}
 	if strings.TrimSpace(instructions) != "" {
 		params.Instructions = openai.String(strings.TrimSpace(instructions))
