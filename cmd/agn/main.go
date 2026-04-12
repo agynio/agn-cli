@@ -228,7 +228,7 @@ func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Age
 		cleanup()
 		return nil, nil, func() {}, err
 	}
-	mcpProvider, err = newMCPProvider(ctx, cfg.MCP)
+	mcpProvider, err = newToolProvider(ctx, cfg.Tools, cfg.MCP)
 	if err != nil {
 		cleanup()
 		return nil, nil, func() {}, err
@@ -247,6 +247,36 @@ func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Age
 		return nil, nil, func() {}, err
 	}
 	return agent, store, cleanup, nil
+}
+
+func newToolProvider(ctx context.Context, toolsCfg config.ToolsConfig, mcpCfg config.MCPConfig) (mcp.ToolProvider, error) {
+	providers := make([]mcp.ToolProvider, 0, 2)
+
+	if toolsCfg.Shell.EnabledValue() {
+		providers = append(providers, mcp.NewShellToolProvider(mcp.ShellToolConfig{
+			Timeout:        toolsCfg.Shell.Timeout,
+			IdleTimeout:    toolsCfg.Shell.IdleTimeout,
+			MaxTimeout:     toolsCfg.Shell.MaxTimeout,
+			MaxIdleTimeout: toolsCfg.Shell.MaxIdleTimeout,
+			MaxOutput:      toolsCfg.Shell.MaxOutput,
+		}))
+	}
+
+	mcpProvider, err := newMCPProvider(ctx, mcpCfg)
+	if err != nil {
+		return nil, err
+	}
+	if mcpProvider != nil {
+		mcpProvider = mcp.NewReservedToolProvider(mcpProvider, []string{mcp.ShellToolName})
+		providers = append(providers, mcpProvider)
+	}
+	if len(providers) == 0 {
+		return nil, nil
+	}
+	if len(providers) == 1 {
+		return providers[0], nil
+	}
+	return mcp.NewMultiClient(providers)
 }
 
 func newMCPProvider(ctx context.Context, cfg config.MCPConfig) (mcp.ToolProvider, error) {

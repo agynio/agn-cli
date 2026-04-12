@@ -19,6 +19,7 @@ type Config struct {
 	SystemPrompt  string              `yaml:"system_prompt"`
 	Loop          LoopConfig          `yaml:"loop"`
 	Summarization SummarizationConfig `yaml:"summarization"`
+	Tools         ToolsConfig         `yaml:"tools"`
 	MCP           MCPConfig           `yaml:"mcp"`
 }
 
@@ -32,6 +33,19 @@ type SummarizationConfig struct {
 	LLM        *LLMConfig `yaml:"llm"`
 	KeepTokens int        `yaml:"keep_tokens"`
 	MaxTokens  int        `yaml:"max_tokens"`
+}
+
+type ToolsConfig struct {
+	Shell ShellToolConfig `yaml:"shell"`
+}
+
+type ShellToolConfig struct {
+	Enabled        *bool `yaml:"enabled"`
+	Timeout        int   `yaml:"timeout"`
+	IdleTimeout    int   `yaml:"idle_timeout"`
+	MaxTimeout     int   `yaml:"max_timeout"`
+	MaxIdleTimeout int   `yaml:"max_idle_timeout"`
+	MaxOutput      int   `yaml:"max_output"`
 }
 
 type LoopConfig struct {
@@ -104,6 +118,9 @@ func (c Config) Validate() error {
 	if err := c.Loop.Validate(); err != nil {
 		return err
 	}
+	if err := c.Tools.Validate(); err != nil {
+		return err
+	}
 	if err := c.MCP.Validate(); err != nil {
 		return err
 	}
@@ -143,6 +160,36 @@ func (l LoopConfig) Validate() error {
 	}
 	if *l.MaxSteps < 1 {
 		return errors.New("loop.max_steps must be >= 1")
+	}
+	return nil
+}
+
+func (t ToolsConfig) Validate() error {
+	return t.Shell.Validate()
+}
+
+func (s ShellToolConfig) EnabledValue() bool {
+	if s.Enabled == nil {
+		return true
+	}
+	return *s.Enabled
+}
+
+func (s ShellToolConfig) Validate() error {
+	if s.Timeout < 0 {
+		return errors.New("tools.shell.timeout must be >= 0")
+	}
+	if s.IdleTimeout < 0 {
+		return errors.New("tools.shell.idle_timeout must be >= 0")
+	}
+	if s.MaxTimeout < 0 {
+		return errors.New("tools.shell.max_timeout must be >= 0")
+	}
+	if s.MaxIdleTimeout < 0 {
+		return errors.New("tools.shell.max_idle_timeout must be >= 0")
+	}
+	if s.MaxOutput < 0 {
+		return errors.New("tools.shell.max_output must be >= 0")
 	}
 	return nil
 }
