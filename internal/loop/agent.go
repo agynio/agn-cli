@@ -25,6 +25,7 @@ import (
 const (
 	DefaultMaxSteps            = 1000
 	defaultMaxRestrictAttempts = 2
+	toolCallInstructions       = "If tool calls are needed, include all required tool calls in a single response."
 )
 
 type EventType string
@@ -273,6 +274,9 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 		return err
 	}
 	instructions := ""
+	if len(state.Tools) > 0 {
+		instructions = toolCallInstructions
+	}
 	toolChoice := responses.ResponseNewParamsToolChoiceUnion{}
 	if state.ForceToolCall {
 		toolChoice.OfToolChoiceMode = openai.Opt(responses.ToolChoiceOptionsRequired)
