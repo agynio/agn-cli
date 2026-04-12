@@ -149,10 +149,6 @@ func resolveTimeoutSeconds(value *int, defaultValue int, maxValue int, field str
 }
 
 func executeShellCommand(ctx context.Context, shellPath string, input shellExecutionConfig) (shellExecutionResult, error) {
-	resolvedShell := strings.TrimSpace(shellPath)
-	if resolvedShell == "" {
-		resolvedShell = "/bin/sh"
-	}
 	var cancel context.CancelFunc
 	execCtx := ctx
 	if input.Timeout > 0 {
@@ -162,8 +158,8 @@ func executeShellCommand(ctx context.Context, shellPath string, input shellExecu
 	}
 	defer cancel()
 
-	cmd := exec.CommandContext(execCtx, resolvedShell, "-c", input.Command)
-	if strings.TrimSpace(input.Cwd) != "" {
+	cmd := exec.CommandContext(execCtx, shellPath, "-c", input.Command)
+	if input.Cwd != "" {
 		cmd.Dir = input.Cwd
 	}
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -237,10 +233,7 @@ func executeShellCommand(ctx context.Context, shellPath string, input shellExecu
 			return shellExecutionResult{}, fmt.Errorf("run shell command: %w", waitErr)
 		}
 	}
-	exitCode := 0
-	if cmd.ProcessState != nil {
-		exitCode = cmd.ProcessState.ExitCode()
-	}
+	exitCode := cmd.ProcessState.ExitCode()
 
 	result := shellExecutionResult{
 		ExitCode: exitCode,
@@ -319,9 +312,7 @@ func (w *streamWriter) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	if w.activity != nil {
-		w.activity()
-	}
+	w.activity()
 	if w.stdout {
 		return w.collector.WriteStdout(p)
 	}
@@ -361,10 +352,8 @@ func (o *outputCollector) write(p []byte, buffer *bytes.Buffer) (int, error) {
 
 	if o.truncated {
 		o.totalBytes += len(p)
-		if o.output != nil {
-			if _, err := o.output.Write(p); err != nil {
-				return 0, err
-			}
+		if _, err := o.output.Write(p); err != nil {
+			return 0, err
 		}
 		return len(p), nil
 	}
@@ -378,7 +367,7 @@ func (o *outputCollector) write(p []byte, buffer *bytes.Buffer) (int, error) {
 	newTotal := o.totalBytes + len(p)
 	if newTotal > o.maxOutput {
 		allowed := o.maxOutput - o.totalBytes
-		file, err := os.CreateTemp(os.TempDir(), "agn-shell-output-")
+		file, err := os.CreateTemp("", "agn-shell-output-")
 		if err != nil {
 			return 0, err
 		}

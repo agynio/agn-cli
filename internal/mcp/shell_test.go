@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -97,12 +98,89 @@ func TestShellToolTruncation(t *testing.T) {
 	t.Cleanup(func() {
 		_ = os.Remove(output.OutputFile)
 	})
-	require.Equal(t, os.TempDir(), filepath.Dir(output.OutputFile))
+	expectedTempDir, err := filepath.EvalSymlinks(os.TempDir())
+	require.NoError(t, err)
+	actualTempDir, err := filepath.EvalSymlinks(filepath.Dir(output.OutputFile))
+	require.NoError(t, err)
+	require.Equal(t, expectedTempDir, actualTempDir)
 	require.True(t, strings.HasPrefix(filepath.Base(output.OutputFile), "agn-shell-output-"))
 
 	data, err := os.ReadFile(output.OutputFile)
 	require.NoError(t, err)
 	require.Equal(t, "1234567890abc", string(data))
+}
+
+func TestParseShellArgumentsTimeoutCapping(t *testing.T) {
+	tests := []struct {
+		name            string
+		raw             string
+		cfg             ShellToolConfig
+		expectedTimeout time.Duration
+		expectedIdle    time.Duration
+		errContains     string
+	}{
+		{
+			name:            "per-call overrides defaults",
+			raw:             `{"command":"echo hi","timeout":2,"idle_timeout":4}`,
+			cfg:             ShellToolConfig{Timeout: 5, IdleTimeout: 3},
+			expectedTimeout: 2 * time.Second,
+			expectedIdle:    4 * time.Second,
+		},
+		{
+			name:            "timeout capped by max",
+			raw:             `{"command":"echo hi","timeout":10}`,
+			cfg:             ShellToolConfig{Timeout: 1, MaxTimeout: 3},
+			expectedTimeout: 3 * time.Second,
+			expectedIdle:    0,
+		},
+		{
+			name:            "timeout zero capped by max",
+			raw:             `{"command":"echo hi","timeout":0}`,
+			cfg:             ShellToolConfig{Timeout: 0, MaxTimeout: 4},
+			expectedTimeout: 4 * time.Second,
+			expectedIdle:    0,
+		},
+		{
+			name:            "idle timeout capped by max",
+			raw:             `{"command":"echo hi","idle_timeout":7}`,
+			cfg:             ShellToolConfig{IdleTimeout: 1, MaxIdleTimeout: 2},
+			expectedTimeout: 0,
+			expectedIdle:    2 * time.Second,
+		},
+		{
+			name:            "idle timeout zero capped by max",
+			raw:             `{"command":"echo hi","idle_timeout":0}`,
+			cfg:             ShellToolConfig{IdleTimeout: 0, MaxIdleTimeout: 3},
+			expectedTimeout: 0,
+			expectedIdle:    3 * time.Second,
+		},
+		{
+			name:        "missing command",
+			raw:         `{}`,
+			cfg:         ShellToolConfig{},
+			errContains: "shell command is required",
+		},
+		{
+			name:        "empty command",
+			raw:         `{"command":"   "}`,
+			cfg:         ShellToolConfig{},
+			errContains: "shell command is required",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config, err := parseShellArguments(json.RawMessage(test.raw), test.cfg)
+			if test.errContains != "" {
+				require.Error(t, err)
+				require.ErrorContains(t, err, test.errContains)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.expectedTimeout, config.Timeout)
+			require.Equal(t, test.expectedIdle, config.IdleTimeout)
+		})
+	}
 }
 
 func decodeShellOutput(t *testing.T, result ToolResult) shellOutput {
