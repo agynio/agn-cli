@@ -14,6 +14,7 @@ import (
 	"github.com/agynio/agn-cli/internal/loop"
 	"github.com/agynio/agn-cli/internal/message"
 	"github.com/agynio/agn-cli/internal/state"
+	"github.com/agynio/agn-cli/internal/telemetry"
 )
 
 const (
@@ -393,10 +394,7 @@ func (s *Server) executeTurn(ctx context.Context, req request, writer io.Writer,
 }
 
 func (s *Server) flushSpans() {
-	if s.flush == nil {
-		return
-	}
-	flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	flushCtx, cancel := context.WithTimeout(context.Background(), telemetry.FlushTimeout)
 	defer cancel()
 	if err := s.flush(flushCtx); err != nil {
 		fmt.Fprintf(os.Stderr, "agn server trace flush error: %v\n", err)

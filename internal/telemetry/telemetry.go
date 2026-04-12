@@ -4,12 +4,15 @@ import (
 	"context"
 	"os"
 	"strings"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
+
+const FlushTimeout = 5 * time.Second
 
 func Init(ctx context.Context) (*sdktrace.TracerProvider, error) {
 	res, err := resource.New(

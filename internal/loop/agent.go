@@ -291,6 +291,9 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 	}
 
 	callIndex := state.LLMCallCount
+	// Record a span for the first LLM call (even on error) to capture context
+	// events. Subsequent calls only emit spans when they return assistant text,
+	// avoiding duplicated context events during tool-call loops.
 	start := time.Now()
 	response, err := a.llm.CreateResponse(ctx, instructions, inputs, state.Tools, toolChoice, state.Stream, onDelta)
 	if err != nil {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -183,7 +182,7 @@ func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Age
 		if mcpProvider != nil {
 			_ = mcpProvider.Close()
 		}
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), telemetry.FlushTimeout)
 		defer cancel()
 		_ = tracerProvider.Shutdown(shutdownCtx)
 	}
