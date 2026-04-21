@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/agynio/agn-cli/internal/tokencounting"
 	"gopkg.in/yaml.v3"
 )
 
@@ -19,6 +21,7 @@ type Config struct {
 	SystemPrompt  string              `yaml:"system_prompt"`
 	Loop          LoopConfig          `yaml:"loop"`
 	Summarization SummarizationConfig `yaml:"summarization"`
+	TokenCounting TokenCountingConfig `yaml:"token_counting"`
 	Tools         ToolsConfig         `yaml:"tools"`
 	MCP           MCPConfig           `yaml:"mcp"`
 }
@@ -33,6 +36,12 @@ type SummarizationConfig struct {
 	LLM        *LLMConfig `yaml:"llm"`
 	KeepTokens int        `yaml:"keep_tokens"`
 	MaxTokens  int        `yaml:"max_tokens"`
+}
+
+type TokenCountingConfig struct {
+	Address string `yaml:"address"`
+	Timeout int    `yaml:"timeout"`
+	Model   string `yaml:"model"`
 }
 
 type ToolsConfig struct {
@@ -115,6 +124,9 @@ func (c Config) Validate() error {
 	if err := c.Summarization.Validate(); err != nil {
 		return err
 	}
+	if err := c.TokenCounting.Validate(); err != nil {
+		return err
+	}
 	if err := c.Loop.Validate(); err != nil {
 		return err
 	}
@@ -150,6 +162,48 @@ func (s SummarizationConfig) Validate() error {
 	}
 	if err := s.LLM.Validate(); err != nil {
 		return fmt.Errorf("summarization.%s", err)
+	}
+	return nil
+}
+
+func (t TokenCountingConfig) AddressValue() string {
+	trimmed := strings.TrimSpace(t.Address)
+	if trimmed == "" {
+		return tokencounting.DefaultAddress
+	}
+	return trimmed
+}
+
+func (t TokenCountingConfig) TimeoutValue() time.Duration {
+	if t.Timeout <= 0 {
+		return tokencounting.DefaultTimeout
+	}
+	return time.Duration(t.Timeout) * time.Second
+}
+
+func (t TokenCountingConfig) Validate() error {
+	trimmed := strings.TrimSpace(t.Address)
+	if trimmed == "" {
+		if t.Timeout < 0 {
+			return errors.New("token_counting.timeout must be >= 0")
+		}
+		if strings.TrimSpace(t.Model) != "" {
+			if _, err := tokencounting.ModelFromConfig(t.Model); err != nil {
+				return fmt.Errorf("token_counting.model is invalid: %w", err)
+			}
+		}
+		return nil
+	}
+	if strings.ContainsAny(trimmed, " \t\n\r") {
+		return errors.New("token_counting.address must not contain whitespace")
+	}
+	if t.Timeout < 0 {
+		return errors.New("token_counting.timeout must be >= 0")
+	}
+	if strings.TrimSpace(t.Model) != "" {
+		if _, err := tokencounting.ModelFromConfig(t.Model); err != nil {
+			return fmt.Errorf("token_counting.model is invalid: %w", err)
+		}
 	}
 	return nil
 }
