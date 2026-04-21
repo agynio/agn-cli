@@ -19,6 +19,7 @@ type Config struct {
 	SystemPrompt  string              `yaml:"system_prompt"`
 	Loop          LoopConfig          `yaml:"loop"`
 	Summarization SummarizationConfig `yaml:"summarization"`
+	TokenCounting TokenCountingConfig `yaml:"token_counting"`
 	Tools         ToolsConfig         `yaml:"tools"`
 	MCP           MCPConfig           `yaml:"mcp"`
 }
@@ -33,6 +34,10 @@ type SummarizationConfig struct {
 	LLM        *LLMConfig `yaml:"llm"`
 	KeepTokens int        `yaml:"keep_tokens"`
 	MaxTokens  int        `yaml:"max_tokens"`
+}
+
+type TokenCountingConfig struct {
+	Address string `yaml:"address"`
 }
 
 type ToolsConfig struct {
@@ -69,6 +74,8 @@ type MCPServerConfig struct {
 }
 
 var mcpServerNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
+
+const defaultTokenCountingAddress = "token-counting:50051"
 
 func DefaultPath() (string, error) {
 	home, err := os.UserHomeDir()
@@ -115,6 +122,9 @@ func (c Config) Validate() error {
 	if err := c.Summarization.Validate(); err != nil {
 		return err
 	}
+	if err := c.TokenCounting.Validate(); err != nil {
+		return err
+	}
 	if err := c.Loop.Validate(); err != nil {
 		return err
 	}
@@ -150,6 +160,25 @@ func (s SummarizationConfig) Validate() error {
 	}
 	if err := s.LLM.Validate(); err != nil {
 		return fmt.Errorf("summarization.%s", err)
+	}
+	return nil
+}
+
+func (t TokenCountingConfig) AddressValue() string {
+	trimmed := strings.TrimSpace(t.Address)
+	if trimmed == "" {
+		return defaultTokenCountingAddress
+	}
+	return trimmed
+}
+
+func (t TokenCountingConfig) Validate() error {
+	trimmed := strings.TrimSpace(t.Address)
+	if trimmed == "" {
+		return nil
+	}
+	if strings.ContainsAny(trimmed, " \t\n\r") {
+		return errors.New("token_counting.address must not contain whitespace")
 	}
 	return nil
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/agynio/agn-cli/internal/state"
 	"github.com/agynio/agn-cli/internal/summarize"
 	"github.com/agynio/agn-cli/internal/telemetry"
+	"github.com/agynio/agn-cli/internal/tokencounting"
 )
 
 func main() {
@@ -178,9 +179,13 @@ func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Age
 	}
 	tracer := tracerProvider.Tracer("agn")
 	var mcpProvider mcp.ToolProvider
+	var tokenCounter *tokencounting.Client
 	cleanup := func() {
 		if mcpProvider != nil {
 			_ = mcpProvider.Close()
+		}
+		if tokenCounter != nil {
+			_ = tokenCounter.Close()
 		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), telemetry.FlushTimeout)
 		defer cancel()
@@ -214,9 +219,17 @@ func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Age
 			return nil, nil, nil, func() {}, err
 		}
 	}
+	tokenCounter, err = tokencounting.New(cfg.TokenCounting.AddressValue(), tokencounting.DefaultModel)
+	if err != nil {
+		cleanup()
+		return nil, nil, nil, func() {}, err
+	}
 	summarizer, err := summarize.New(summarizerClient, summarize.Config{
 		KeepTokens: cfg.Summarization.KeepTokens,
 		MaxTokens:  cfg.Summarization.MaxTokens,
+		TokenCounter: func(msg message.Message) (int, error) {
+			return tokenCounter.Count(msg)
+		},
 	})
 	if err != nil {
 		cleanup()

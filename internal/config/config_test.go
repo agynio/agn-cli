@@ -353,3 +353,25 @@ tools:
 	require.Error(t, err)
 	require.ErrorContains(t, err, "tools.shell.timeout must be >= 0")
 }
+
+func TestTokenCountingDefaultAddress(t *testing.T) {
+	cfg := Config{}
+	require.Equal(t, defaultTokenCountingAddress, cfg.TokenCounting.AddressValue())
+}
+
+func TestLoadConfigWithTokenCountingAddress(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+token_counting:
+  address: localhost:50052
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "localhost:50052", cfg.TokenCounting.AddressValue())
+}
