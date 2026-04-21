@@ -384,3 +384,36 @@ token_counting:
 	require.Equal(t, "localhost:50052", cfg.TokenCounting.AddressValue())
 	require.Equal(t, 45*time.Second, cfg.TokenCounting.TimeoutValue())
 }
+
+func TestLoadConfigWithTokenCountingModel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+token_counting:
+  model: gpt-5
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	_, err := Load(path)
+	require.NoError(t, err)
+}
+
+func TestLoadConfigWithInvalidTokenCountingModel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`llm:
+  endpoint: https://api.openai.com/v1
+  auth:
+    api_key: sk-test
+  model: gpt-4.1
+token_counting:
+  model: simple-hello
+`)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "token_counting.model")
+}

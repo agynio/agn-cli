@@ -219,7 +219,7 @@ func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Age
 			return nil, nil, nil, func() {}, err
 		}
 	}
-	tokenModel, err := tokencounting.ModelForLLM(cfg.LLM.Model)
+	tokenModel, err := tokencounting.ModelFromConfig(cfg.TokenCounting.Model)
 	if err != nil {
 		cleanup()
 		return nil, nil, nil, func() {}, err

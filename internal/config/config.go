@@ -41,6 +41,7 @@ type SummarizationConfig struct {
 type TokenCountingConfig struct {
 	Address string `yaml:"address"`
 	Timeout int    `yaml:"timeout"`
+	Model   string `yaml:"model"`
 }
 
 type ToolsConfig struct {
@@ -186,6 +187,11 @@ func (t TokenCountingConfig) Validate() error {
 		if t.Timeout < 0 {
 			return errors.New("token_counting.timeout must be >= 0")
 		}
+		if strings.TrimSpace(t.Model) != "" {
+			if _, err := tokencounting.ModelFromConfig(t.Model); err != nil {
+				return fmt.Errorf("token_counting.model is invalid: %w", err)
+			}
+		}
 		return nil
 	}
 	if strings.ContainsAny(trimmed, " \t\n\r") {
@@ -193,6 +199,11 @@ func (t TokenCountingConfig) Validate() error {
 	}
 	if t.Timeout < 0 {
 		return errors.New("token_counting.timeout must be >= 0")
+	}
+	if strings.TrimSpace(t.Model) != "" {
+		if _, err := tokencounting.ModelFromConfig(t.Model); err != nil {
+			return fmt.Errorf("token_counting.model is invalid: %w", err)
+		}
 	}
 	return nil
 }

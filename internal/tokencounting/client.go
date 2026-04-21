@@ -93,14 +93,14 @@ func (c *Client) CountWithContext(ctx context.Context, msg message.Message) (int
 	return count, nil
 }
 
-func ModelForLLM(model string) (tokencountingv1.TokenCountingModel, error) {
+func ModelFromConfig(model string) (tokencountingv1.TokenCountingModel, error) {
 	trimmed := strings.TrimSpace(model)
 	if trimmed == "" {
-		return 0, errors.New("llm model is required")
+		return DefaultModel, nil
 	}
 	lower := strings.ToLower(trimmed)
 	if strings.HasPrefix(lower, "gpt-5") {
 		return DefaultModel, nil
 	}
-	return 0, fmt.Errorf("token counting supports gpt-5 models only: %q", trimmed)
+	return 0, fmt.Errorf("unsupported token counting model: %q", trimmed)
 }
