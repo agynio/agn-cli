@@ -55,6 +55,10 @@ func (tokenCountingServer) CountTokens(_ context.Context, req *tokencountingv1.C
 	tokens := make([]int32, len(req.Messages))
 	for i, payload := range req.Messages {
 		text := extractTokenText(payload)
+		if strings.TrimSpace(text) == "" {
+			tokens[i] = tokenCountForText(string(payload))
+			continue
+		}
 		tokens[i] = tokenCountForText(text)
 	}
 	return &tokencountingv1.CountTokensResponse{Tokens: tokens}, nil
