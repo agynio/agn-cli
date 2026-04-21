@@ -218,6 +218,8 @@ func tokenCountForText(text string) int32 {
 	divisor := 4
 	if length >= 120 {
 		divisor = 2
+	} else if length >= 40 {
+		divisor = 3
 	}
 	return int32(length/divisor + 1)
 }
