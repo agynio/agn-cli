@@ -68,6 +68,9 @@ func newSummarizationTestEnv(t *testing.T) summarizationTestEnv {
 			Model:    "summarize-agent-turn1",
 		},
 		Summarization: summarizationCfg,
+		TokenCounting: config.TokenCountingConfig{
+			Address: tokenCountingAddress(t),
+		},
 	}
 	turn1Payload, err := yaml.Marshal(turn1Config)
 	require.NoError(t, err)
@@ -81,6 +84,9 @@ func newSummarizationTestEnv(t *testing.T) summarizationTestEnv {
 			Model:    "summarize-agent-turn2",
 		},
 		Summarization: summarizationCfg,
+		TokenCounting: config.TokenCountingConfig{
+			Address: tokenCountingAddress(t),
+		},
 	}
 	turn2Payload, err := yaml.Marshal(turn2Config)
 	require.NoError(t, err)

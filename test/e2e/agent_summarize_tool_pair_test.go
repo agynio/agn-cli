@@ -89,6 +89,9 @@ func newToolPairTestEnv(t *testing.T, mcpCommand string) toolPairTestEnv {
 			Model:    toolPairTurn1Model,
 		},
 		Summarization: summarizationCfg,
+		TokenCounting: config.TokenCountingConfig{
+			Address: tokenCountingAddress(t),
+		},
 		MCP: config.MCPConfig{
 			Servers: map[string]config.MCPServerConfig{
 				"weather": {Command: mcpCommand},
@@ -107,6 +110,9 @@ func newToolPairTestEnv(t *testing.T, mcpCommand string) toolPairTestEnv {
 			Model:    toolPairTurn2Model,
 		},
 		Summarization: summarizationCfg,
+		TokenCounting: config.TokenCountingConfig{
+			Address: tokenCountingAddress(t),
+		},
 		MCP: config.MCPConfig{
 			Servers: map[string]config.MCPServerConfig{
 				"weather": {Command: mcpCommand},
