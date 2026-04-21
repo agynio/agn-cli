@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/agynio/agn-cli/internal/llm"
 	"github.com/agynio/agn-cli/internal/message"
 	tokencountingv1 "github.com/agynio/agn-cli/internal/tokencounting/token_countingv1"
 )
@@ -61,7 +60,7 @@ func (c *Client) Count(msg message.Message) (int, error) {
 }
 
 func (c *Client) CountWithContext(ctx context.Context, msg message.Message) (int, error) {
-	items, err := llm.MessagesToInput([]message.Message{msg})
+	items, err := tokenCountingItems(msg)
 	if err != nil {
 		return 0, err
 	}

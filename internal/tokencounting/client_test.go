@@ -90,19 +90,43 @@ func TestClientCountSumsTokens(t *testing.T) {
 	require.Equal(t, DefaultModel, req.Model)
 	require.Len(t, req.Messages, 2)
 
-	for idx, expected := range []struct {
-		callID string
-		name   string
-	}{
-		{callID: "call-1", name: "lookup"},
-		{callID: "call-2", name: "search"},
-	} {
-		var payload map[string]any
+	for idx, expected := range []string{`{"q":"one"}`, `{"q":"two"}`} {
+		var payload struct {
+			Type      string `json:"type"`
+			Arguments string `json:"arguments"`
+		}
 		require.NoError(t, json.Unmarshal(req.Messages[idx], &payload))
-		require.Equal(t, "function_call", payload["type"])
-		require.Equal(t, expected.callID, payload["call_id"])
-		require.Equal(t, expected.name, payload["name"])
+		require.Equal(t, "function_call", payload.Type)
+		require.Equal(t, expected, payload.Arguments)
 	}
+}
+
+func TestClientCountMessagePayload(t *testing.T) {
+	server := &captureServer{resp: &tokencountingv1.CountTokensResponse{Tokens: []int32{1}}}
+	client, cleanup := newBufconnClient(t, server)
+	defer cleanup()
+
+	_, err := client.CountWithContext(context.Background(), message.NewHumanMessage("hello"))
+	require.NoError(t, err)
+
+	req := server.LastRequest()
+	require.NotNil(t, req)
+	require.Len(t, req.Messages, 1)
+
+	var payload struct {
+		Type    string `json:"type"`
+		Role    string `json:"role"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	require.NoError(t, json.Unmarshal(req.Messages[0], &payload))
+	require.Equal(t, "message", payload.Type)
+	require.Equal(t, "user", payload.Role)
+	require.Len(t, payload.Content, 1)
+	require.Equal(t, "input_text", payload.Content[0].Type)
+	require.Equal(t, "hello", payload.Content[0].Text)
 }
 
 func TestClientCountLengthMismatch(t *testing.T) {
