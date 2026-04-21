@@ -74,12 +74,30 @@ func extractTokenText(payload []byte) string {
 	switch envelope.Type {
 	case "message":
 		var msg struct {
-			Content []json.RawMessage `json:"content"`
+			Content json.RawMessage `json:"content"`
 		}
 		if err := json.Unmarshal(payload, &msg); err != nil {
 			return ""
 		}
-		return joinContentParts(msg.Content)
+		trimmed := strings.TrimSpace(string(msg.Content))
+		if trimmed == "" {
+			return ""
+		}
+		if trimmed[0] == '"' {
+			var text string
+			if err := json.Unmarshal(msg.Content, &text); err != nil {
+				return ""
+			}
+			return text
+		}
+		if trimmed[0] == '[' {
+			var parts []json.RawMessage
+			if err := json.Unmarshal(msg.Content, &parts); err != nil {
+				return ""
+			}
+			return joinContentParts(parts)
+		}
+		return ""
 	case "function_call":
 		var call struct {
 			Arguments string `json:"arguments"`
