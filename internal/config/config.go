@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/agynio/agn-cli/internal/tokencounting"
 	"gopkg.in/yaml.v3"
 )
 
@@ -38,6 +40,7 @@ type SummarizationConfig struct {
 
 type TokenCountingConfig struct {
 	Address string `yaml:"address"`
+	Timeout int    `yaml:"timeout"`
 }
 
 type ToolsConfig struct {
@@ -74,8 +77,6 @@ type MCPServerConfig struct {
 }
 
 var mcpServerNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
-
-const defaultTokenCountingAddress = "token-counting:50051"
 
 func DefaultPath() (string, error) {
 	home, err := os.UserHomeDir()
@@ -167,18 +168,31 @@ func (s SummarizationConfig) Validate() error {
 func (t TokenCountingConfig) AddressValue() string {
 	trimmed := strings.TrimSpace(t.Address)
 	if trimmed == "" {
-		return defaultTokenCountingAddress
+		return tokencounting.DefaultAddress
 	}
 	return trimmed
+}
+
+func (t TokenCountingConfig) TimeoutValue() time.Duration {
+	if t.Timeout <= 0 {
+		return tokencounting.DefaultTimeout
+	}
+	return time.Duration(t.Timeout) * time.Second
 }
 
 func (t TokenCountingConfig) Validate() error {
 	trimmed := strings.TrimSpace(t.Address)
 	if trimmed == "" {
+		if t.Timeout < 0 {
+			return errors.New("token_counting.timeout must be >= 0")
+		}
 		return nil
 	}
 	if strings.ContainsAny(trimmed, " \t\n\r") {
 		return errors.New("token_counting.address must not contain whitespace")
+	}
+	if t.Timeout < 0 {
+		return errors.New("token_counting.timeout must be >= 0")
 	}
 	return nil
 }

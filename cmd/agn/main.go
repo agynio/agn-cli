@@ -219,7 +219,16 @@ func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Age
 			return nil, nil, nil, func() {}, err
 		}
 	}
-	tokenCounter, err = tokencounting.New(cfg.TokenCounting.AddressValue(), tokencounting.DefaultModel)
+	tokenModel, err := tokencounting.ModelForLLM(cfg.LLM.Model)
+	if err != nil {
+		cleanup()
+		return nil, nil, nil, func() {}, err
+	}
+	tokenCounter, err = tokencounting.New(
+		cfg.TokenCounting.AddressValue(),
+		tokenModel,
+		cfg.TokenCounting.TimeoutValue(),
+	)
 	if err != nil {
 		cleanup()
 		return nil, nil, nil, func() {}, err

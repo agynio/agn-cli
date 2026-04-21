@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/agynio/agn-cli/internal/tokencounting"
 	"github.com/stretchr/testify/require"
 )
 
@@ -356,7 +358,12 @@ tools:
 
 func TestTokenCountingDefaultAddress(t *testing.T) {
 	cfg := Config{}
-	require.Equal(t, defaultTokenCountingAddress, cfg.TokenCounting.AddressValue())
+	require.Equal(t, tokencounting.DefaultAddress, cfg.TokenCounting.AddressValue())
+}
+
+func TestTokenCountingDefaultTimeout(t *testing.T) {
+	cfg := Config{}
+	require.Equal(t, tokencounting.DefaultTimeout, cfg.TokenCounting.TimeoutValue())
 }
 
 func TestLoadConfigWithTokenCountingAddress(t *testing.T) {
@@ -368,10 +375,12 @@ func TestLoadConfigWithTokenCountingAddress(t *testing.T) {
   model: gpt-4.1
 token_counting:
   address: localhost:50052
+  timeout: 45
 `)
 	require.NoError(t, os.WriteFile(path, content, 0o600))
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
 	require.Equal(t, "localhost:50052", cfg.TokenCounting.AddressValue())
+	require.Equal(t, 45*time.Second, cfg.TokenCounting.TimeoutValue())
 }

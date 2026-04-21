@@ -18,7 +18,7 @@ import (
 
 const (
 	DefaultAddress = "token-counting:50051"
-	DefaultTimeout = 5 * time.Second
+	DefaultTimeout = 30 * time.Second
 )
 
 var DefaultModel = tokencountingv1.TokenCountingModel_TOKEN_COUNTING_MODEL_GPT_5
@@ -30,10 +30,13 @@ type Client struct {
 	timeout time.Duration
 }
 
-func New(address string, model tokencountingv1.TokenCountingModel) (*Client, error) {
+func New(address string, model tokencountingv1.TokenCountingModel, timeout time.Duration) (*Client, error) {
 	trimmed := strings.TrimSpace(address)
 	if trimmed == "" {
 		return nil, errors.New("token counting address is required")
+	}
+	if timeout <= 0 {
+		timeout = DefaultTimeout
 	}
 	conn, err := grpc.NewClient(trimmed, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -43,7 +46,7 @@ func New(address string, model tokencountingv1.TokenCountingModel) (*Client, err
 		conn:    conn,
 		client:  tokencountingv1.NewTokenCountingServiceClient(conn),
 		model:   model,
-		timeout: DefaultTimeout,
+		timeout: timeout,
 	}, nil
 }
 
@@ -78,7 +81,7 @@ func (c *Client) CountWithContext(ctx context.Context, msg message.Message) (int
 		Messages: payloads,
 	})
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("count tokens: %w", err)
 	}
 	if len(resp.Tokens) != len(payloads) {
 		return 0, fmt.Errorf("token counting returned %d tokens for %d items", len(resp.Tokens), len(payloads))
@@ -88,4 +91,16 @@ func (c *Client) CountWithContext(ctx context.Context, msg message.Message) (int
 		count += int(token)
 	}
 	return count, nil
+}
+
+func ModelForLLM(model string) (tokencountingv1.TokenCountingModel, error) {
+	trimmed := strings.TrimSpace(model)
+	if trimmed == "" {
+		return 0, errors.New("llm model is required")
+	}
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, "gpt-5") {
+		return DefaultModel, nil
+	}
+	return 0, fmt.Errorf("token counting supports gpt-5 models only: %q", trimmed)
 }
