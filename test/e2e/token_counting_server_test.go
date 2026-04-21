@@ -73,31 +73,7 @@ func extractTokenText(payload []byte) string {
 	}
 	switch envelope.Type {
 	case "message":
-		var msg struct {
-			Content json.RawMessage `json:"content"`
-		}
-		if err := json.Unmarshal(payload, &msg); err != nil {
-			return ""
-		}
-		trimmed := strings.TrimSpace(string(msg.Content))
-		if trimmed == "" {
-			return ""
-		}
-		if trimmed[0] == '"' {
-			var text string
-			if err := json.Unmarshal(msg.Content, &text); err != nil {
-				return ""
-			}
-			return text
-		}
-		if trimmed[0] == '[' {
-			var parts []json.RawMessage
-			if err := json.Unmarshal(msg.Content, &parts); err != nil {
-				return ""
-			}
-			return joinContentParts(parts)
-		}
-		return ""
+		return extractMessageContent(payload)
 	case "function_call":
 		var call struct {
 			Arguments string `json:"arguments"`
@@ -114,9 +90,66 @@ func extractTokenText(payload []byte) string {
 			return ""
 		}
 		return extractOutputText(output.Output)
+	case "":
+		return extractUntypedPayload(payload)
 	default:
 		return ""
 	}
+}
+
+func extractMessageContent(payload []byte) string {
+	var msg struct {
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(payload, &msg); err != nil {
+		return ""
+	}
+	return extractContentPayload(msg.Content)
+}
+
+func extractContentPayload(content json.RawMessage) string {
+	trimmed := strings.TrimSpace(string(content))
+	if trimmed == "" {
+		return ""
+	}
+	if trimmed[0] == '"' {
+		var text string
+		if err := json.Unmarshal(content, &text); err != nil {
+			return ""
+		}
+		return text
+	}
+	if trimmed[0] == '[' {
+		var parts []json.RawMessage
+		if err := json.Unmarshal(content, &parts); err != nil {
+			return ""
+		}
+		return joinContentParts(parts)
+	}
+	return ""
+}
+
+func extractUntypedPayload(payload []byte) string {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		return ""
+	}
+	if _, ok := raw["role"]; ok {
+		if content, ok := raw["content"]; ok {
+			return extractContentPayload(content)
+		}
+	}
+	if args, ok := raw["arguments"]; ok {
+		var parsed string
+		if err := json.Unmarshal(args, &parsed); err != nil {
+			return ""
+		}
+		return parsed
+	}
+	if output, ok := raw["output"]; ok {
+		return extractOutputText(output)
+	}
+	return ""
 }
 
 func extractOutputText(raw json.RawMessage) string {
