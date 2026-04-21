@@ -163,5 +163,10 @@ func tokenCountForText(text string) int32 {
 	if trimmed == "" {
 		return 1
 	}
-	return int32(len([]rune(trimmed))/2 + 1)
+	length := len([]rune(trimmed))
+	divisor := 4
+	if length >= 120 {
+		divisor = 2
+	}
+	return int32(length/divisor + 1)
 }
