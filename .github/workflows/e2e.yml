@@ -24,13 +24,18 @@ jobs:
 
       - name: Build agn binary
         working-directory: service
-        run: go build -o dist/agn ./cmd/agn
+        run: |
+          mkdir -p dist
+          go build -o dist/agn ./cmd/agn
 
       - name: Provision cluster
         uses: agynio/bootstrap/.github/actions/provision@0382a86ed54c603a30cceb91e2fe4eba8c2fd924
+        with:
+          ref: 0382a86ed54c603a30cceb91e2fe4eba8c2fd924
 
       - name: Run e2e tests
-        uses: agynio/e2e/.github/actions/run-tests@main
+        uses: agynio/e2e/.github/actions/run-tests@db582e6df4de4846b6a5f46834794aba4bb8cfb4
         with:
+          ref: db582e6df4de4846b6a5f46834794aba4bb8cfb4
           service: agn_cli
           agn-binary: service/dist/agn
