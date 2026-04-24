@@ -18,9 +18,48 @@ import (
 
 const bufSize = 1024 * 1024
 
-type captureServer struct {
-	tokencountingv1.UnimplementedTokenCountingServiceServer
+const tokenCountingGatewayServiceName = "agynio.api.gateway.v1.TokenCountingGateway"
 
+type tokenCountingGatewayServer interface {
+	CountTokens(context.Context, *tokencountingv1.CountTokensRequest) (*tokencountingv1.CountTokensResponse, error)
+}
+
+var tokenCountingGatewayServiceDesc = grpc.ServiceDesc{
+	ServiceName: tokenCountingGatewayServiceName,
+	HandlerType: (*tokenCountingGatewayServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CountTokens",
+			Handler:    tokenCountingGatewayCountTokensHandler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "agynio/api/gateway/v1/token_counting.proto",
+}
+
+func registerTokenCountingGatewayServer(s grpc.ServiceRegistrar, srv tokenCountingGatewayServer) {
+	s.RegisterService(&tokenCountingGatewayServiceDesc, srv)
+}
+
+func tokenCountingGatewayCountTokensHandler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (any, error) {
+	in := new(tokencountingv1.CountTokensRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(tokenCountingGatewayServer).CountTokens(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: tokenCountingGatewayCountTokensMethod,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(tokenCountingGatewayServer).CountTokens(ctx, req.(*tokencountingv1.CountTokensRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+type captureServer struct {
 	mu   sync.Mutex
 	req  *tokencountingv1.CountTokensRequest
 	resp *tokencountingv1.CountTokensResponse
@@ -49,7 +88,7 @@ func newBufconnClient(t *testing.T, server *captureServer) (*Client, func()) {
 	t.Helper()
 	listener := bufconn.Listen(bufSize)
 	grpcServer := grpc.NewServer()
-	tokencountingv1.RegisterTokenCountingServiceServer(grpcServer, server)
+	registerTokenCountingGatewayServer(grpcServer, server)
 	go func() {
 		_ = grpcServer.Serve(listener)
 	}()
@@ -60,7 +99,6 @@ func newBufconnClient(t *testing.T, server *captureServer) (*Client, func()) {
 	require.NoError(t, err)
 	client := &Client{
 		conn:    conn,
-		client:  tokencountingv1.NewTokenCountingServiceClient(conn),
 		model:   DefaultModel,
 		timeout: time.Second,
 	}

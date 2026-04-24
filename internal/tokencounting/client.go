@@ -16,15 +16,16 @@ import (
 )
 
 const (
-	DefaultAddress = "token-counting:50051"
+	DefaultAddress = "gateway.ziti:443"
 	DefaultTimeout = 30 * time.Second
+
+	tokenCountingGatewayCountTokensMethod = "/agynio.api.gateway.v1.TokenCountingGateway/CountTokens"
 )
 
 var DefaultModel = tokencountingv1.TokenCountingModel_TOKEN_COUNTING_MODEL_GPT_5
 
 type Client struct {
 	conn    *grpc.ClientConn
-	client  tokencountingv1.TokenCountingServiceClient
 	model   tokencountingv1.TokenCountingModel
 	timeout time.Duration
 }
@@ -43,7 +44,6 @@ func New(address string, model tokencountingv1.TokenCountingModel, timeout time.
 	}
 	return &Client{
 		conn:    conn,
-		client:  tokencountingv1.NewTokenCountingServiceClient(conn),
 		model:   model,
 		timeout: timeout,
 	}, nil
@@ -75,10 +75,11 @@ func (c *Client) CountWithContext(ctx context.Context, msg message.Message) (int
 		}
 		payloads[i] = payload
 	}
-	resp, err := c.client.CountTokens(ctx, &tokencountingv1.CountTokensRequest{
+	resp := &tokencountingv1.CountTokensResponse{}
+	err = c.conn.Invoke(ctx, tokenCountingGatewayCountTokensMethod, &tokencountingv1.CountTokensRequest{
 		Model:    c.model,
 		Messages: payloads,
-	})
+	}, resp)
 	if err != nil {
 		return 0, fmt.Errorf("count tokens: %w", err)
 	}
