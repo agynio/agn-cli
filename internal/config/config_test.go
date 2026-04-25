@@ -4,9 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
-	"github.com/agynio/agn-cli/internal/tokencounting"
 	"github.com/stretchr/testify/require"
 )
 
@@ -356,17 +354,7 @@ tools:
 	require.ErrorContains(t, err, "tools.shell.timeout must be >= 0")
 }
 
-func TestTokenCountingDefaultAddress(t *testing.T) {
-	cfg := Config{}
-	require.Equal(t, tokencounting.DefaultAddress, cfg.TokenCounting.AddressValue())
-}
-
-func TestTokenCountingDefaultTimeout(t *testing.T) {
-	cfg := Config{}
-	require.Equal(t, tokencounting.DefaultTimeout, cfg.TokenCounting.TimeoutValue())
-}
-
-func TestLoadConfigWithTokenCountingAddress(t *testing.T) {
+func TestLoadConfigIgnoresTokenCountingSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	content := []byte(`llm:
   endpoint: https://api.openai.com/v1
@@ -374,46 +362,12 @@ func TestLoadConfigWithTokenCountingAddress(t *testing.T) {
     api_key: sk-test
   model: gpt-4.1
 token_counting:
-  address: localhost:50052
-  timeout: 45
-`)
-	require.NoError(t, os.WriteFile(path, content, 0o600))
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-	require.Equal(t, "localhost:50052", cfg.TokenCounting.AddressValue())
-	require.Equal(t, 45*time.Second, cfg.TokenCounting.TimeoutValue())
-}
-
-func TestLoadConfigWithTokenCountingModel(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	content := []byte(`llm:
-  endpoint: https://api.openai.com/v1
-  auth:
-    api_key: sk-test
-  model: gpt-4.1
-token_counting:
-  model: gpt-5
+  address: "bad address"
+  timeout: -10
+  model: ignored-model
 `)
 	require.NoError(t, os.WriteFile(path, content, 0o600))
 
 	_, err := Load(path)
 	require.NoError(t, err)
-}
-
-func TestLoadConfigWithInvalidTokenCountingModel(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	content := []byte(`llm:
-  endpoint: https://api.openai.com/v1
-  auth:
-    api_key: sk-test
-  model: gpt-4.1
-token_counting:
-  model: simple-hello
-`)
-	require.NoError(t, os.WriteFile(path, content, 0o600))
-
-	_, err := Load(path)
-	require.Error(t, err)
-	require.ErrorContains(t, err, "token_counting.model")
 }

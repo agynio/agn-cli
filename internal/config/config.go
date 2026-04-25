@@ -8,9 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
-	"github.com/agynio/agn-cli/internal/tokencounting"
 	"gopkg.in/yaml.v3"
 )
 
@@ -166,45 +164,7 @@ func (s SummarizationConfig) Validate() error {
 	return nil
 }
 
-func (t TokenCountingConfig) AddressValue() string {
-	trimmed := strings.TrimSpace(t.Address)
-	if trimmed == "" {
-		return tokencounting.DefaultAddress
-	}
-	return trimmed
-}
-
-func (t TokenCountingConfig) TimeoutValue() time.Duration {
-	if t.Timeout <= 0 {
-		return tokencounting.DefaultTimeout
-	}
-	return time.Duration(t.Timeout) * time.Second
-}
-
 func (t TokenCountingConfig) Validate() error {
-	trimmed := strings.TrimSpace(t.Address)
-	if trimmed == "" {
-		if t.Timeout < 0 {
-			return errors.New("token_counting.timeout must be >= 0")
-		}
-		if strings.TrimSpace(t.Model) != "" {
-			if _, err := tokencounting.ModelFromConfig(t.Model); err != nil {
-				return fmt.Errorf("token_counting.model is invalid: %w", err)
-			}
-		}
-		return nil
-	}
-	if strings.ContainsAny(trimmed, " \t\n\r") {
-		return errors.New("token_counting.address must not contain whitespace")
-	}
-	if t.Timeout < 0 {
-		return errors.New("token_counting.timeout must be >= 0")
-	}
-	if strings.TrimSpace(t.Model) != "" {
-		if _, err := tokencounting.ModelFromConfig(t.Model); err != nil {
-			return fmt.Errorf("token_counting.model is invalid: %w", err)
-		}
-	}
 	return nil
 }
 

@@ -179,7 +179,7 @@ func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Age
 	}
 	tracer := tracerProvider.Tracer("agn")
 	var mcpProvider mcp.ToolProvider
-	var tokenCounter *tokencounting.Client
+	var tokenCounter *tokencounting.Counter
 	cleanup := func() {
 		if mcpProvider != nil {
 			_ = mcpProvider.Close()
@@ -219,16 +219,7 @@ func buildAgent(ctx context.Context, cfg config.Config, maxSteps int) (*loop.Age
 			return nil, nil, nil, func() {}, err
 		}
 	}
-	tokenModel, err := tokencounting.ModelFromConfig(cfg.TokenCounting.Model)
-	if err != nil {
-		cleanup()
-		return nil, nil, nil, func() {}, err
-	}
-	tokenCounter, err = tokencounting.New(
-		cfg.TokenCounting.AddressValue(),
-		tokenModel,
-		cfg.TokenCounting.TimeoutValue(),
-	)
+	tokenCounter, err = tokencounting.New()
 	if err != nil {
 		cleanup()
 		return nil, nil, nil, func() {}, err
