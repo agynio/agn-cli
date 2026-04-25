@@ -8,6 +8,7 @@ require (
 	github.com/openai/openai-go/v3 v3.29.0
 	github.com/pdfcpu/pdfcpu v0.11.1
 	github.com/pkoukk/tiktoken-go v0.1.8
+	github.com/pkoukk/tiktoken-go-loader v0.0.2
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/otel v1.43.0

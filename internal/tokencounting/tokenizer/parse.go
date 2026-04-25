@@ -219,7 +219,7 @@ func parseContentPart(raw json.RawMessage) (ContentPart, error) {
 		}
 		return ContentPart{Type: ContentTypeInputFile, File: FileContent{Filename: strings.TrimSpace(*content.Filename), Data: strings.TrimSpace(*content.FileData)}}, nil
 	case ContentTypeInputAudio:
-		return ContentPart{Type: ContentTypeInputAudio}, nil
+		return ContentPart{}, errors.New("audio content is not supported")
 	default:
 		return ContentPart{}, fmt.Errorf("unsupported content type %q", envelope.Type)
 	}

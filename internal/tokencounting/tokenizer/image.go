@@ -63,8 +63,8 @@ func (c *counter) imageDimensions(ctx context.Context, imageURL string) (int, in
 	if err != nil {
 		return 0, 0, fmt.Errorf("parse image_url: %w", err)
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return 0, 0, fmt.Errorf("unsupported image_url scheme %q", parsed.Scheme)
+	if parsed.Scheme != "https" {
+		return 0, 0, fmt.Errorf("image_url must use https, got %q", parsed.Scheme)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)

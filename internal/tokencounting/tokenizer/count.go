@@ -112,7 +112,7 @@ func (c *counter) countContentPart(ctx context.Context, part ContentPart) (int, 
 	case ContentTypeInputFile:
 		return c.countFileTokens(ctx, part.File)
 	case ContentTypeInputAudio:
-		return 0, nil
+		return 0, errors.New("audio content is not supported")
 	default:
 		return 0, fmt.Errorf("unsupported content type %q", part.Type)
 	}

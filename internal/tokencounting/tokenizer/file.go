@@ -79,7 +79,7 @@ func (c *counter) countFileTokens(ctx context.Context, file FileContent) (int, e
 		return c.countPDFTokens(data)
 	}
 	if _, ok := audioExtensions[fileExt]; ok {
-		return 0, nil
+		return 0, fmt.Errorf("audio files are not supported: %s", fileExt)
 	}
 	if _, ok := textExtensions[fileExt]; ok {
 		return c.countText(string(data)), nil
