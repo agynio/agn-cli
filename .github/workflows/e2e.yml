@@ -38,5 +38,5 @@ jobs:
         with:
           ref: 0a4f88cc9d2392234dd2faa88427d3051e2722d0
           service: agn_cli
-          include-smoke: false
+          include_smoke: false
           agn-binary: service/dist/agn
