@@ -34,8 +34,9 @@ jobs:
           ref: 0382a86ed54c603a30cceb91e2fe4eba8c2fd924
 
       - name: Run e2e tests
-        uses: agynio/e2e/.github/actions/run-tests@db582e6df4de4846b6a5f46834794aba4bb8cfb4
+        uses: agynio/e2e/.github/actions/run-tests@026c6071b9fe798c2b1a5bb421c3d100cf268c4d
         with:
-          ref: db582e6df4de4846b6a5f46834794aba4bb8cfb4
+          ref: 026c6071b9fe798c2b1a5bb421c3d100cf268c4d
           service: agn_cli
+          include-smoke: false
           agn-binary: service/dist/agn
