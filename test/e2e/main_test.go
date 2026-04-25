@@ -102,9 +102,6 @@ func newTestEnv(t *testing.T, model string, systemPrompt string) testEnv {
 			Auth:     config.AuthConfig{APIKey: "dummy"},
 			Model:    model,
 		},
-		TokenCounting: config.TokenCountingConfig{
-			Address: tokenCountingAddress(t),
-		},
 	}
 	if strings.TrimSpace(systemPrompt) != "" {
 		configData.SystemPrompt = systemPrompt

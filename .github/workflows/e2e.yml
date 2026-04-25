@@ -14,11 +14,29 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          path: service
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.25'
+
+      - name: Build agn binary
+        working-directory: service
+        run: |
+          mkdir -p dist
+          go build -o dist/agn ./cmd/agn
+
+      - name: Provision cluster
+        uses: agynio/bootstrap/.github/actions/provision@0382a86ed54c603a30cceb91e2fe4eba8c2fd924
+        with:
+          ref: 0382a86ed54c603a30cceb91e2fe4eba8c2fd924
 
       - name: Run e2e tests
-        run: go test -v -count=1 -tags e2e ./test/e2e/
+        uses: agynio/e2e/.github/actions/run-tests@0a4f88cc9d2392234dd2faa88427d3051e2722d0
+        with:
+          ref: 0a4f88cc9d2392234dd2faa88427d3051e2722d0
+          service: agn_cli
+          include_smoke: false
+          agn-binary: service/dist/agn
