@@ -83,29 +83,34 @@ func TestShellToolIdleTimeout(t *testing.T) {
 }
 
 func TestShellToolTruncation(t *testing.T) {
-	provider := NewShellToolProvider(ShellToolConfig{MaxOutput: 10})
-	result, err := provider.CallTool(context.Background(), ToolCall{
-		Name:      ShellToolName,
-		Arguments: json.RawMessage(`{"command":"printf '1234567890abc'"}`),
-	})
-	require.NoError(t, err)
+	collector := newOutputCollector(10)
 
-	output := decodeShellOutput(t, result)
-	require.True(t, output.OutputTruncated)
-	require.Equal(t, 13, output.OutputBytes)
-	require.Equal(t, "1234567890", output.Stdout)
-	require.NotEmpty(t, output.OutputFile)
+	n, err := collector.WriteStdout([]byte("1234567890"))
+	require.NoError(t, err)
+	require.Equal(t, 10, n)
+
+	n, err = collector.WriteStdout([]byte("abc"))
+	require.NoError(t, err)
+	require.Equal(t, 3, n)
+
+	require.NoError(t, collector.Close())
+	require.True(t, collector.Truncated())
+	require.Equal(t, 13, collector.TotalBytes())
+	require.Equal(t, "1234567890", collector.Stdout())
+
+	outputFile := collector.OutputFile()
+	require.NotEmpty(t, outputFile)
 	t.Cleanup(func() {
-		_ = os.Remove(output.OutputFile)
+		_ = os.Remove(outputFile)
 	})
 	expectedTempDir, err := filepath.EvalSymlinks(os.TempDir())
 	require.NoError(t, err)
-	actualTempDir, err := filepath.EvalSymlinks(filepath.Dir(output.OutputFile))
+	actualTempDir, err := filepath.EvalSymlinks(filepath.Dir(outputFile))
 	require.NoError(t, err)
 	require.Equal(t, expectedTempDir, actualTempDir)
-	require.True(t, strings.HasPrefix(filepath.Base(output.OutputFile), "agn-shell-output-"))
+	require.True(t, strings.HasPrefix(filepath.Base(outputFile), "agn-shell-output-"))
 
-	data, err := os.ReadFile(output.OutputFile)
+	data, err := os.ReadFile(outputFile)
 	require.NoError(t, err)
 	require.Equal(t, "1234567890abc", string(data))
 }
