@@ -6,37 +6,31 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           path: service
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25'
-
-      - name: Build agn binary
-        working-directory: service
-        run: |
-          mkdir -p dist
-          go build -o dist/agn ./cmd/agn
-
       - name: Provision cluster
-        uses: agynio/bootstrap/.github/actions/provision@0382a86ed54c603a30cceb91e2fe4eba8c2fd924
-        with:
-          ref: 0382a86ed54c603a30cceb91e2fe4eba8c2fd924
+        uses: agynio/bootstrap/.github/actions/provision@main
+
+      - name: Setup DevSpace
+        uses: agynio/e2e/.github/actions/setup-devspace@main
+
+      - name: Build agn from source
+        working-directory: service
+        run: devspace dev
 
       - name: Run e2e tests
-        uses: agynio/e2e/.github/actions/run-tests@0a4f88cc9d2392234dd2faa88427d3051e2722d0
+        uses: agynio/e2e/.github/actions/run-tests@main
         with:
-          ref: 0a4f88cc9d2392234dd2faa88427d3051e2722d0
           service: agn_cli
           include_smoke: false
           agn-binary: service/dist/agn
