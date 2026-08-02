@@ -19,10 +19,17 @@ jobs:
           path: service
 
       - name: Provision cluster
-        uses: agynio/bootstrap/.github/actions/provision@main
+        uses: agynio/e2e/.github/actions/provision-vm@main
 
       - name: Setup DevSpace
         uses: agynio/e2e/.github/actions/setup-devspace@main
+
+      # The dev pipeline shells out to `go build` on the runner, so Go has to be
+      # here rather than assumed from the image.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: service/go.mod
 
       - name: Build agn from source
         working-directory: service
