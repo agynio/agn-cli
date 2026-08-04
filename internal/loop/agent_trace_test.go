@@ -263,3 +263,15 @@ func mustJSON(t *testing.T, payload any) []byte {
 	require.NoError(t, err)
 	return data
 }
+
+// emptyResponseBody is a completed response carrying neither text nor tool
+// calls, which is how a turn looks once its work went out as a tool call.
+func emptyResponseBody(t *testing.T) []byte {
+	t.Helper()
+	return mustJSON(t, map[string]any{
+		"id":     "resp-empty",
+		"model":  "gpt-test",
+		"status": "completed",
+		"output": []map[string]any{},
+	})
+}
