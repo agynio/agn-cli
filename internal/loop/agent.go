@@ -291,23 +291,19 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 	}
 
 	callIndex := state.LLMCallCount
-	// Record a span for the first LLM call (even on error) to capture context
-	// events. Subsequent calls only emit spans when they return assistant text,
-	// avoiding duplicated context events during tool-call loops.
+	// Every call gets a span. Only the first carries the context events, which
+	// are the bulky part and identical across a tool-call loop; dropping the
+	// span with them hid the calls that end a turn without text.
 	start := time.Now()
 	response, err := a.llm.CreateResponse(ctx, instructions, inputs, state.Tools, toolChoice, state.Stream, onDelta)
 	if err != nil {
-		if callIndex == 0 {
-			a.recordLLMSpan(ctx, start, time.Now(), contextEvents, nil, "")
-		}
+		a.recordLLMSpan(ctx, start, time.Now(), spanContextEvents(contextEvents, callIndex), nil, "")
 		state.LLMCallCount++
 		return err
 	}
 	text := strings.TrimSpace(response.OutputText())
 	toolCalls := llm.ExtractToolCalls(response)
-	if callIndex == 0 || text != "" {
-		a.recordLLMSpan(ctx, start, time.Now(), contextEvents, response, text)
-	}
+	a.recordLLMSpan(ctx, start, time.Now(), spanContextEvents(contextEvents, callIndex), response, text)
 
 	if text != "" {
 		msg := message.NewAIMessage(text)
@@ -329,6 +325,15 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 	}
 	state.ForceToolCall = false
 	state.LLMCallCount++
+	return nil
+}
+
+// spanContextEvents attaches the context only to the first call of a turn; the
+// later ones repeat it verbatim.
+func spanContextEvents(events []contextEvent, callIndex int) []contextEvent {
+	if callIndex == 0 {
+		return events
+	}
 	return nil
 }
 

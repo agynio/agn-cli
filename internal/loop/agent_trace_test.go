@@ -57,7 +57,10 @@ func TestCallModelSpanCoalescingFirstCallError(t *testing.T) {
 	require.Equal(t, "llm.call", spans[0].Name())
 }
 
-func TestCallModelSpanCoalescingToolCallOnlySkipsSpan(t *testing.T) {
+// A later call is still recorded -- skipping it hid the calls that end a turn
+// without text, which is exactly what a trace needs to show. Only its context
+// events are dropped, since they repeat the first call's verbatim.
+func TestCallModelRecordsSubsequentCallsWithoutContextEvents(t *testing.T) {
 	server, errCh := newLLMServer(t, []llmResponse{
 		{status: http.StatusOK, body: toolCallResponseBody(t, "call-1", "tool")},
 	})
@@ -71,7 +74,9 @@ func TestCallModelSpanCoalescingToolCallOnlySkipsSpan(t *testing.T) {
 	assertNoServerErrors(t, errCh)
 
 	spans := spanRecorder.Ended()
-	require.Empty(t, spans)
+	require.Len(t, spans, 1)
+	require.Equal(t, "llm.call", spans[0].Name())
+	require.Empty(t, spans[0].Events())
 }
 
 func TestCallModelSpanCoalescingSubsequentTextRecordsSpan(t *testing.T) {
