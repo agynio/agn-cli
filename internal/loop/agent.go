@@ -439,9 +439,6 @@ func (a *Agent) executeTool(ctx context.Context, call message.ToolCall, state *S
 }
 
 func (a *Agent) save(ctx context.Context, state *State) error {
-	if strings.TrimSpace(state.LastAssistant) == "" {
-		return errors.New("no assistant response to save")
-	}
 	state.Thread.UpdatedAt = time.Now().UTC()
 	return a.store.Save(ctx, state.Thread)
 }
