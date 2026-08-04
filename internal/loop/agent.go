@@ -309,10 +309,6 @@ func (a *Agent) callModel(ctx context.Context, state *State) error {
 		a.recordLLMSpan(ctx, start, time.Now(), contextEvents, response, text)
 	}
 
-	if text == "" && len(toolCalls) == 0 {
-		return errors.New("model returned no content")
-	}
-
 	if text != "" {
 		msg := message.NewAIMessage(text)
 		record, err := a.recordFromMessage(itemID, msg)
