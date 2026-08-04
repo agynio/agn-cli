@@ -184,9 +184,9 @@ func (a *Agent) Run(ctx context.Context, input Input) (Result, error) {
 	if err := a.loop.Run(spanCtx, state); err != nil {
 		return Result{}, err
 	}
-	if strings.TrimSpace(state.LastAssistant) == "" {
-		return Result{}, errors.New("no response generated")
-	}
+	// An empty response is a turn that answered with tool calls, not a failure.
+	// Reporting it as one made the caller replay the message and the agent send
+	// its reply again on every attempt.
 	return Result{ThreadID: threadID, Response: state.LastAssistant}, nil
 }
 

@@ -1,6 +1,11 @@
 package loop
 
 import (
+	"context"
+	"net/http"
+
+	"github.com/agynio/agn-cli/internal/message"
+	"github.com/agynio/agn-cli/internal/summarize"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -63,4 +68,31 @@ func TestAdjustLoadedMessageCount(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+// A turn that answers by calling a tool produces no assistant text. Reporting
+// that as a failure made agynd replay the message, and the agent sent its reply
+// again on every attempt.
+func TestTurnReturnsAnEmptyResponseWithoutFailing(t *testing.T) {
+	server, errCh := newLLMServer(t, []llmResponse{
+		{status: http.StatusOK, body: emptyResponseBody(t)},
+	})
+	client := newTestLLMClient(t, server.URL)
+	summarizer, err := summarize.New(client, summarize.Config{})
+	require.NoError(t, err)
+	agent, err := NewAgent(AgentConfig{
+		Store:      stubStore{},
+		LLM:        client,
+		Summarizer: summarizer,
+		MaxSteps:   10,
+	})
+	require.NoError(t, err)
+
+	result, err := agent.Run(context.Background(), Input{
+		ThreadID: "thread-1",
+		Prompt:   message.NewHumanMessage("hello"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "", result.Response)
+	assertNoServerErrors(t, errCh)
 }
