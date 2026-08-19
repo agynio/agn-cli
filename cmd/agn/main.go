@@ -153,13 +153,16 @@ func serveCommand() *cobra.Command {
 				return err
 			}
 			maxSteps := resolveMaxSteps(cfg)
-			agent, store, flush, cleanup, err := buildAgent(cmd.Context(), cfg, maxSteps)
+			// Everything this process reports belongs to the trace whoever
+			// started it already opened, so the root context carries it.
+			ctx := telemetry.ContextFromEnvironment(cmd.Context())
+			agent, store, flush, cleanup, err := buildAgent(ctx, cfg, maxSteps)
 			if err != nil {
 				return err
 			}
 			defer cleanup()
 			srv := server.New(agent, store, flush)
-			return srv.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
+			return srv.Serve(ctx, cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}
 	return cmd
