@@ -166,13 +166,23 @@ func (a *Agent) Run(ctx context.Context, input Input) (Result, error) {
 		input.EventSink(Event{Type: EventTurnStarted, ThreadID: threadID, TurnID: turnID})
 		defer input.EventSink(Event{Type: EventTurnDone, ThreadID: threadID, TurnID: turnID})
 	}
-	spanCtx, span := a.tracer.Start(ctx, "invocation.message")
-	span.SetAttributes(
-		attribute.String("agyn.message.text", input.Prompt.Text),
-		attribute.String("agyn.message.role", "user"),
-		attribute.String("agyn.message.kind", "source"),
-	)
-	defer span.End()
+	// invocation.message marks where a turn begins, and whoever handed the
+	// message over is the one that knows. Running under the platform, agynd
+	// opens the trace and records it before the message reaches this process --
+	// so recording a second one puts two of them on the same turn, which is
+	// what a reader counting turns sees as two turns. Standalone there is no
+	// such caller, and the span is this turn's root.
+	spanCtx := ctx
+	if !trace.SpanContextFromContext(ctx).IsValid() {
+		var span trace.Span
+		spanCtx, span = a.tracer.Start(ctx, "invocation.message")
+		span.SetAttributes(
+			attribute.String("agyn.message.text", input.Prompt.Text),
+			attribute.String("agyn.message.role", "user"),
+			attribute.String("agyn.message.kind", "source"),
+		)
+		defer span.End()
+	}
 	state := &State{
 		Thread:         state.Thread{ID: threadID, Messages: []state.MessageRecord{}},
 		TurnID:         turnID,
